@@ -11,7 +11,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Text
 )
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
 import os
@@ -118,7 +118,7 @@ class TaskRecommendation(Base):
 
 
 # Base.metadata.drop_all(bind=engine)  # Uncomment to reset tables
-Base.metadata.create_all(bind=engine)
+# Base.metadata.create_all(bind=engine)
 
 
 # Optional utility to insert rolling sentiment
