@@ -13,7 +13,25 @@ import json
 import re
 
 app = Flask(__name__)
+# import nltk
+# nltk.download('punkt')
 
+
+
+import nltk
+from nltk.data import load
+
+# Add the monkey patch here
+_original_load = load
+def patched_load(resource_name, *args, **kwargs):
+    if 'punkt_tab' in resource_name:
+        return _original_load('tokenizers/punkt/english.pickle')
+    return _original_load(resource_name, *args, **kwargs)
+
+nltk.data.load = patched_load
+
+# Download punkt
+nltk.download('punkt')
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from processor import * 
@@ -23,7 +41,7 @@ def scheduled_processing():
 
 # Schedule to run every 5 minutes
 scheduler = BackgroundScheduler()
-scheduler.add_job(func=scheduled_processing, trigger="interval", minutes=5)
+scheduler.add_job(func=scheduled_processing, trigger="interval", minutes=1)
 scheduler.start()
 
 # Shut down the scheduler when exiting the app

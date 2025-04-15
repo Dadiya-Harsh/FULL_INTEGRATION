@@ -5,7 +5,7 @@ import re
 import json
 from groq import Groq
 from models import *
-from Video_process.AI_meeting_task.sentiment import *
+from sentiment import *
 load_dotenv()
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
