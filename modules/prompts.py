@@ -21,4 +21,4 @@ def identify_speaker_role_prompt(formatted_transcript: str) -> str:
     """.strip()
 
 def format_transcript_for_roles(transcript: List[Dict[str, str]]) -> str:
-    return "\n".join([f"{seg['speaker']}: {seg['utterance']}" for seg in transcript])
+    return "\n".join([f"{seg['speaker']}: {seg['text']}" for seg in transcript])

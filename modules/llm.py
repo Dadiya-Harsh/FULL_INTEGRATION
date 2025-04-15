@@ -6,7 +6,7 @@ load_dotenv()
 
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-def get_groq_response(prompt: str, model: str = "llama-3.1-8b-instant") -> str:
+def get_groq_response(prompt: str, model: str = "llama3-8b-8192") -> str:
     try:
         response = groq_client.chat.completions.create(
             model=model,

@@ -119,7 +119,7 @@ class SpeechProcessingPipeline:
                 "speaker": seg["speaker"],
                 "start": seg["start"],
                 "end": seg["end"],
-                "utterance": transcription
+                "text": transcription
             })
 
         self.diarized_transcript = results

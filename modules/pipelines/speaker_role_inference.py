@@ -1,8 +1,10 @@
+# import loggin
 from modules.pipelines.speaker_diarization_based_transcription_pipeline import SpeechProcessingPipeline
 from modules.db.postgres import insert_transcript
 from modules.prompts import identify_speaker_role_prompt, format_transcript_for_roles
 from modules.llm import get_groq_response
 import json
+
 
 class SpeakerRoleInferencePipeline:
     def __init__(self, audio_file_path: str):
@@ -14,7 +16,8 @@ class SpeakerRoleInferencePipeline:
         role_mapping = self.identify_roles(samples)
         enriched_transcript = self.label_full_transcript(transcript, role_mapping)
         self.insert_to_db(enriched_transcript)
-        return role_mapping
+        # print(f"enriched_transcript: {enriched_transcript}")
+        return enriched_transcript
 
     def diarize_and_transcribe(self, audio_path):
         return SpeechProcessingPipeline(audio_path).run_pipeline()
@@ -35,7 +38,7 @@ class SpeakerRoleInferencePipeline:
             if utterance_count[speaker] < max_per_speaker:
                 samples.append({
                     "speaker": speaker,
-                    "utterance": entry["utterance"]
+                    "text": entry["text"]
                 })
                 utterance_count[speaker] += 1
 

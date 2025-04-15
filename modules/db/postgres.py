@@ -41,8 +41,8 @@ def insert_transcript(transcript: List[Dict], meeting_id: str = None):
     logger.info(f"Inserting transcript for meeting_id: {meeting_id}")
 
     query = """
-    INSERT INTO meeting_transcripts (meeting_id, speaker_label, utterance)
-    VALUES (%s, %s, %s)
+    INSERT INTO meeting_transcript (meeting_id, name, text, processed)
+    VALUES (%s, %s, %s, %s)
     """
 
     with get_connection() as conn:
@@ -52,7 +52,8 @@ def insert_transcript(transcript: List[Dict], meeting_id: str = None):
                 cursor.execute(query, (
                     meeting_id,
                     entry.get("speaker"),
-                    entry.get("utterance")
+                    entry.get("text"),
+                    False
                 ))
             except Exception as e:
                 logger.error(f"Insert failed for entry {entry}: {e}")
