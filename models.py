@@ -39,7 +39,6 @@ class Meeting(Base):
     task_recommendations = relationship("TaskRecommendation", backref="meeting", cascade="all, delete-orphan")
 
 
-
 class Employee(Base):
     __tablename__ = "employee"
     id = Column(Integer, primary_key=True, index=True)
@@ -47,7 +46,28 @@ class Employee(Base):
     email = Column(String)
     phone = Column(String)
     status = Column(String)
-    role = Column(String)
+    role = Column(String)  # 'employee', 'manager', or 'hr'
+    manager_id = Column(Integer, ForeignKey("employee.id"), nullable=True)
+    
+    # Relationships
+    subordinates = relationship("Employee", backref="manager", remote_side=[id])
+    assigned_tasks = relationship("Task", backref="assignee", foreign_keys="Task.assigned_to_id")
+    created_tasks = relationship("Task", backref="creator", foreign_keys="Task.created_by_id")
+
+
+class Task(Base):
+    __tablename__ = "task"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(Text)
+    status = Column(String, default="pending")  # pending, in_progress, completed
+    priority = Column(String, default="medium")  # low, medium, high
+    created_at = Column(DateTime, default=datetime.utcnow)
+    deadline = Column(DateTime, nullable=True)
+    
+    # Foreign keys
+    assigned_to_id = Column(Integer, ForeignKey("employee.id"), nullable=False)
+    created_by_id = Column(Integer, ForeignKey("employee.id"), nullable=False)
 
 
 class MeetingTranscript(Base):
@@ -59,12 +79,6 @@ class MeetingTranscript(Base):
     name = Column(String, nullable=False)
     text = Column(Text)
     processed = Column(Boolean, default=False)
-
-    # # Relationships
-    # rolling_sentiments = relationship("RollingSentiment", backref="transcript", cascade="all, delete-orphan")
-    # employee_skills = relationship("EmployeeSkills", backref="transcript", cascade="all, delete-orphan")
-    # skill_recommendations = relationship("SkillRecommendation", backref="transcript", cascade="all, delete-orphan")
-    # task_recommendations = relationship("TaskRecommendation", backref="transcript", cascade="all, delete-orphan")
 
 
 class RollingSentiment(Base):
@@ -119,24 +133,3 @@ class TaskRecommendation(Base):
 
 # Base.metadata.drop_all(bind=engine)  # Uncomment to reset tables
 # Base.metadata.create_all(bind=engine)
-
-
-# Optional utility to insert rolling sentiment
-def add_rolling_sentiment(session, meeting_id, name, role, rolling_data):
-    from sqlalchemy.exc import IntegrityError
-    from json import dumps
-
-    sentiment_entry = RollingSentiment(
-        meeting_id=meeting_id,
-        name=name,
-        role=role,
-        rolling_sentiment=dumps(rolling_data)
-    )
-
-    session.add(sentiment_entry)
-    try:
-        session.commit()
-        print(f"Inserted rolling sentiment for {name}")
-    except IntegrityError:
-        session.rollback()
-        print(f"Rolling sentiment for {name} in meeting {meeting_id} already exists.")
