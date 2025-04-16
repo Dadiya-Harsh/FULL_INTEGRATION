@@ -1,20 +1,24 @@
 import streamlit as st
 import logging
-from chatbot.langchain_bot import SQLChatbot
+from pathlib import Path
 import sys
-sys.path.append('/home/voldemort/Integration/FULL_INTEGRATION/sql_chatbot')
 
+# Add project root to Python path dynamically
+project_root = Path(__file__).parent
+sys.path.append(str(project_root))
+
+from chatbot.langchain_bot import SQLChatbot
 import os
 from dotenv import load_dotenv
 load_dotenv()
-# Set up logging
+
+# Modify log file path to be relative to project root
 logging.basicConfig(
-    filename='/home/voldemort/Integration/FULL_INTEGRATION/sql_chatbot/chatbot/app.log',
+    filename=project_root / 'chatbot/app.log',
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
 
 # Initialize chatbot
 DB_URI = os.getenv("DATABASE_URL") 

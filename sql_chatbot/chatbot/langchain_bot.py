@@ -160,6 +160,40 @@ class SQLChatbot:
         self.workflow = self._build_graph()
         logger.info(f"SQLChatbot initialized with {llm_provider} LLM")
 
+
+    def _classify_query(self, question: str) -> bool:
+        """
+        Determine if the question is a database query or casual conversation.
+        
+        Args:
+            question: The user's input question
+            
+        Returns:
+            bool: True if it's a database query, False if it's conversational
+        """
+        classification_prompt = ChatPromptTemplate.from_messages([
+            ("system", """You are a query classifier that determines if a user's question is:
+            
+            1. A database query - Questions about retrieving, analyzing, or understanding data stored in the database
+            2. A conversational query - General chit-chat, greetings, or questions not related to database operations
+            
+            Return only "DATABASE" or "CONVERSATION" based on the question's intent.
+            """),
+            ("human", "{question}")
+        ])
+        
+        classifier_chain = classification_prompt | self.llm | StrOutputParser()
+        
+        try:
+            result = classifier_chain.invoke({"question": question})
+            is_database = "DATABASE" in result.upper()
+            logger.info(f"Query classified as: {'DATABASE' if is_database else 'CONVERSATION'}")
+            return is_database
+        except Exception as e:
+            logger.error(f"Error classifying query: {str(e)}")
+            # Default to treating it as a database query if classification fails
+            return True
+
     def _get_user_info(self, email: str) -> tuple[int, str]:
         """Fetch user_id and role by inferring table and columns from schema."""
         try:
@@ -278,7 +312,7 @@ class SQLChatbot:
             role = chat_state.role
             user_id = chat_state.user_id
             sql_prompt = ChatPromptTemplate.from_messages([
-                ("system", """You are an expert SQL query generator.
+                ("system", """You are an expert SQL query generator with a conversational style.
                 Given the database schema, user role, user ID, and a question, generate a SQL query that answers the question.
                 Strictly adhere to the schema, using exact table and column names.
                 Apply role-based access filters:
@@ -394,15 +428,21 @@ class SQLChatbot:
         query_result = chat_state.query_result
         error = chat_state.error
         response_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a helpful database assistant.
+            ("system", """You are a helpful database assistant with a warm, conversational style.
             Given a user question, SQL query, query result, user role, and any error, provide a clear and helpful response.
             Respect the user's role-based access:
             - Employee: Can only see their own data.
             - Manager: Can see their team's data.
             - HR: Can see all data.
-            If there was an error, explain it in a friendly manner and suggest a fix if possible.
-            If the query was successful, summarize the results and directly answer the user's question.
-
+            
+            Communication guidelines:
+            - Speak naturally and conversationally, like a helpful colleague
+            - Focus on answering the question directly, but warmly
+            - Avoid technical jargon unless needed
+            - If there was an error, explain it in a friendly manner
+            - Acknowledge the user's question in your response
+            - End with a brief, friendly closing when appropriate
+            
             User Role: {role}"""),
             MessagesPlaceholder(variable_name="messages"),
             ("human", """
@@ -425,11 +465,63 @@ class SQLChatbot:
             logger.debug(f"Formatted response: {response}")
             return chat_state.to_dict()
         except Exception as e:
-            error_message = f"Sorry, I encountered an error: {str(e)}"
+            error_message = f"I'm sorry, I ran into a problem while processing your request: {str(e)}. Could you try asking in a different way?"
             chat_state.add_message(AIMessage(content=error_message))
             chat_state.error = error_message
             logger.error(error_message)
             return chat_state.to_dict()
+        
+
+    def _generate_conversational_response(self, question: str, email: str) -> str:
+        """
+        Generate a conversational response for non-database queries.
+        
+        Args:
+            question: The user's input question
+            email: User's email
+        
+        Returns:
+            str: Conversational response
+        """
+        try:
+            # Get basic user info for personalization
+            user_id, role = self._get_user_info(email)
+            
+            # Create conversation prompt
+            chat_prompt = ChatPromptTemplate.from_messages([
+                ("system", """You are a helpful, friendly database assistant with a warm, conversational style.
+                
+                The user has asked a question that appears to be conversational rather than a database query.
+                
+                Reply in a natural, helpful way while keeping these guidelines in mind:
+                - Be warm and personable in your tone
+                - Acknowledge their question directly
+                - If appropriate, gently remind them that your primary purpose is to help with database queries
+                - Keep responses concise and friendly
+                - Don't be overly formal or robotic
+                - If they're asking for help or clarification about how to use the system, provide guidance
+                
+                User's role in the system: {role}
+                User's ID: {user_id}
+                """),
+                ("human", "{question}")
+            ])
+            
+            chat_chain = chat_prompt | self.llm | StrOutputParser()
+            
+            response = chat_chain.invoke({
+                "question": question,
+                "role": role,
+                "user_id": user_id
+            })
+            
+            # Log the interaction
+            logger.info(f"Generated conversational response for user {email}")
+            
+            return response
+        except Exception as e:
+            logger.error(f"Error generating conversational response: {str(e)}")
+            return "I'm here to help with database queries. What would you like to know about the data?"
 
     def process_query(self, question: str, email: str) -> str:
         """Process a user query and return a response."""
@@ -439,6 +531,15 @@ class SQLChatbot:
         if not isinstance(email, str):
             logger.error(f"Invalid email type: {type(email)}")
             raise ValueError("Email must be a string")
+        
+        # First, classify the query
+        is_database_query = self._classify_query(question)
+        
+        # Handle conversational queries directly
+        if not is_database_query:
+            return self._generate_conversational_response(question, email)
+        
+        # If it's a database query, use the existing workflow
         user_id, role = self._get_user_info(email)
         state = ChatState(
             messages=[HumanMessage(content=question)],
