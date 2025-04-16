@@ -100,16 +100,14 @@
 
 import os
 import requests
-from processor import process_new_meetings
-import streamlit as st
 from flask import Flask, jsonify
 from threading import Thread
 from apscheduler.schedulers.background import BackgroundScheduler
+import streamlit as st
 
-# Your app imports
+from processor import process_new_meetings
 from app01 import employee_dashboard, hr_dashboard, login_page, manager_dashboard
 from modules.pipelines.speaker_role_inference import SpeakerRoleInferencePipeline
-# from modules.db.process_new_meetings import process_new_meetings  # Assuming this is your logic
 
 # ============================
 # 🔁 BACKEND: Flask + Scheduler
@@ -131,7 +129,7 @@ def process_unprocessed():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 def start_flask():
-    app.run(port=5000, debug=False, use_reloader=False)  # use_reloader=False prevents double thread
+    app.run(port=5000, debug=False, use_reloader=False)
 
 def scheduled_processing():
     print("⏰ Auto-scheduler triggered.")
@@ -147,6 +145,8 @@ scheduler.start()
 # ============================
 # 🖥️ FRONTEND: Streamlit App
 # ============================
+
+# Initialize session state
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'user_name' not in st.session_state:
@@ -155,6 +155,16 @@ if 'user_email' not in st.session_state:
     st.session_state.user_email = None
 if 'user_role' not in st.session_state:
     st.session_state.user_role = None
+
+if 'pipeline' not in st.session_state:
+    st.session_state.pipeline = None
+if 'samples' not in st.session_state:
+    st.session_state.samples = None
+if 'transcript_ready' not in st.session_state:
+    st.session_state.transcript_ready = False
+if 'labeled_transcript' not in st.session_state:
+    st.session_state.labeled_transcript = None
+
 
 def main():
     if not st.session_state.authenticated:
@@ -179,11 +189,12 @@ def main():
     else:
         employee_dashboard()
 
-    st.title("Speech Processing and Role Inference")
-    st.subheader("Upload your audio file (e.g., .wav, .mp3, .m4a)")
+    st.title("🎙️ Speech Processing and Role Inference")
+    st.subheader("📤 Upload your audio file (e.g., .wav, .mp3, .m4a)")
     audio_file = st.file_uploader("Choose an audio file", type=["wav", "mp3", "m4a"], key="audio_file_uploader")
 
-    if audio_file is not None:
+    # 🧠 PROCESSING (only once!)
+    if audio_file is not None and not st.session_state.transcript_ready:
         file_name = os.path.splitext(audio_file.name)[0] + ".wav"
         audio_file_path = os.path.join("uploads", file_name)
         os.makedirs(os.path.dirname(audio_file_path), exist_ok=True)
@@ -191,40 +202,57 @@ def main():
         with open(audio_file_path, "wb") as f:
             f.write(audio_file.getbuffer())
 
-        progress = st.progress(0)
-        st.write("Starting audio processing...")
-        progress.progress(10)
+        with st.spinner("🔄 Processing audio and sampling utterances..."):
+            st.session_state.pipeline = SpeakerRoleInferencePipeline(audio_file_path=audio_file_path)
+            st.session_state.samples = st.session_state.pipeline.run_for_raw_transcript()
+            st.session_state.transcript_ready = True
+        st.success("✅ Audio processed successfully!")
+        st.rerun()
 
-        pipeline = SpeakerRoleInferencePipeline(audio_file_path=audio_file_path)
-        st.write("Running speaker role inference pipeline...")
-        progress.progress(50)
+    # 👀 PREVIEW & MANUAL SPEAKER LABELING
+    if st.session_state.transcript_ready and st.session_state.samples:
+        st.subheader("📝 Preview Sample Utterances")
+        for s in st.session_state.samples:
+            st.markdown(f"**{s['speaker']}**: {s['text']}")
 
-        role_mapping = pipeline.run()
+        st.subheader("🔢 How many unique speakers?")
+        num_speakers = st.number_input("Number of Speakers", min_value=1, max_value=10, value=2, step=1)
 
-        progress.progress(80)
-        st.subheader("Role Mapping")
-        st.json(role_mapping)
+        st.subheader("✍️ Assign Role Labels")
+        speaker_labels = {}
+        for i in range(num_speakers):
+            key = f"speaker_{i}"
+            label = st.text_input(f"Label for {key}", value=f"Speaker {i + 1}")
+            speaker_labels[key] = label
 
-        with st.spinner("Updating speaker names in the database..."):
-            try:
-                response = requests.post("http://localhost:5000/process_unprocessed")
-                if response.status_code == 200:
-                    st.success("✅ Speaker names updated successfully in the database!")
-                else:
-                    st.error(f"❌ Update failed: {response.json().get('message', 'Unknown error')}")
-            except Exception as e:
-                st.error(f"🚫 Could not connect to backend: {str(e)}")
+        if st.button("✅ Apply Speaker Labels"):
+            with st.spinner("🔄 Mapping labels to full transcript..."):
+                transcript = st.session_state.pipeline.apply_manual_labels(speaker_labels)
+                st.session_state.labeled_transcript = transcript
+            st.success("🎯 Speaker roles successfully applied!")
 
-        progress.progress(100)
-        st.success("🎉 Pipeline completed successfully!")
+    # ✅ FINAL LABELED TRANSCRIPT
+    if st.session_state.labeled_transcript:
+        st.subheader("🗒️ Final Transcript with Labels")
+        for entry in st.session_state.labeled_transcript:
+            st.markdown(f"**{entry['speaker']}** [{entry['start']:.2f}s - {entry['end']:.2f}s]: {entry['text']}")
+
+        if st.button("📥 Save to Database"):
+            with st.spinner("💾 Saving transcript..."):
+                st.session_state.pipeline.insert_to_db(st.session_state.labeled_transcript)
+                st.success("✅ Transcript saved to database!")
+
+        if st.button("🔄 Start Over"):
+            for key in ["pipeline", "samples", "transcript_ready", "labeled_transcript"]:
+                st.session_state[key] = None if key == "pipeline" else False if key == "transcript_ready" else None
+            st.rerun()
+
 
 # ========================================
 # ✅ MAIN ENTRY POINT - Launch Flask thread
 # ========================================
 if __name__ == "__main__":
-    # Start Flask app in background
     flask_thread = Thread(target=start_flask, daemon=True)
     flask_thread.start()
-
-    # Run Streamlit app
     main()
+

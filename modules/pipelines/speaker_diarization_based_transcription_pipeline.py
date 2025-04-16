@@ -1,6 +1,7 @@
 import os
 import glob
 import json
+import torch
 import shutil
 import logging
 import subprocess
@@ -20,6 +21,7 @@ load_dotenv()
 
 # Configure logging
 logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
+device = 0 if torch.cuda.is_available() else -1
 
 class SpeechProcessingPipeline:
     """
@@ -81,10 +83,13 @@ class SpeechProcessingPipeline:
         config.diarizer.manifest_filepath = "manifest.json"
         config.diarizer.out_dir = "./"
         config.diarizer.speaker_embeddings.model_path = "titanet_large"
+        config.diarizer.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         logging.info("Running diarization...")
         with suppress_output():
             diarizer = ClusteringDiarizer(cfg=config)
+            if not torch.cuda.is_available():
+                logging.warning("CUDA not available. Diarization will run on CPU and might be slow.")
             diarizer.diarize()
 
     def _locate_rttm(self):
@@ -101,7 +106,7 @@ class SpeechProcessingPipeline:
         segments = self._parse_rttm()
 
         silence_transformers()
-        asr = hf_pipeline("automatic-speech-recognition", model=f"openai/whisper-{self.model}")
+        asr = hf_pipeline("automatic-speech-recognition", model=f"openai/whisper-{self.model}", device=device)
         results = []
 
         logging.info("Transcribing segments...")
@@ -174,8 +179,3 @@ class SpeechProcessingPipeline:
             logging.info("Downloading diarization config...")
             urllib.request.urlretrieve(url, path)
         return path
-
-if __name__ == "__main__":
-    pipeline = SpeechProcessingPipeline(input_audio="batman.mp3", num_speakers=2, model="base")
-    result = pipeline.run_pipeline()
-    print(result)
