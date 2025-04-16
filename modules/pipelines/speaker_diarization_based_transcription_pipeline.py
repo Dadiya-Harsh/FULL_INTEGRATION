@@ -106,8 +106,8 @@ class SpeechProcessingPipeline:
 
         logging.info("Transcribing segments...")
         for seg in tqdm(segments, desc="Transcribing", unit="segment"):
-            start_sample = int(seg["start"] * sr)
-            end_sample = int(seg["end"] * sr)
+            start_sample = max(0, int(seg["start"] * sr))
+            end_sample = min(waveform.shape[1], int(seg["end"] * sr))
             audio_chunk = waveform[:, start_sample:end_sample]
 
             with tempfile.NamedTemporaryFile(suffix=".wav") as tmp:

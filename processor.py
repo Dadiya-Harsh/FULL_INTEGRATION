@@ -28,7 +28,8 @@ sys.modules['nltk.tokenize'].sent_tokenize = safe_sent_tokenize
 def get_rolling_sentiment_from_transcript(transcript: str, name: str):
  
 
-
+    print("NAME : ",name)
+    print("TRANSCRIPT : ",transcript)
     sentences = safe_sent_tokenize(transcript)
 
     result_data = []
@@ -45,7 +46,8 @@ def get_rolling_sentiment_from_transcript(transcript: str, name: str):
                 # Convert to 0–100 sentiment score
                 # sentiment_score = score * 100 if label == "POSITIVE" else (1 - score) * 100
                 sentiment_score = get_sentiment(text)
-                print("APP : ",sentiment_score)
+                print("TEXT ---------   : ",text)
+                print(f"Text , APP : {text},{sentiment_score}")
                 result_data.append({
                     "Index": index,
                     "Rolling Sentiment": round(sentiment_score, 2)

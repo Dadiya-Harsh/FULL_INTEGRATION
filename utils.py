@@ -110,7 +110,7 @@ def get_rolling_sentiment_from_transcript(transcript: str, name: str):
 
     sentences = sent_tokenize(transcript)
     result_data = []
-
+    print("TRANSCRIPT : ", transcript)
     index = 1  # Sentence-wise index for the whole transcript
     for sentence in sentences:
         if sentence.lower().startswith(name.lower() + ":"):
@@ -123,6 +123,9 @@ def get_rolling_sentiment_from_transcript(transcript: str, name: str):
                 # Convert to 0–100 sentiment score
                 # sentiment_score = score * 100 if label == "POSITIVE" else (1 - score) * 100
                 sentiment_score = get_sentiment(text)
+                print("NAME : ", name)
+               
+                print("TEXT ---------   : ", text)
                 print("APP : ",sentiment_score)
                 result_data.append({
                     "Index": index,
@@ -131,6 +134,20 @@ def get_rolling_sentiment_from_transcript(transcript: str, name: str):
         index += 1  # Increase index regardless of who said it
 
     return result_data
+
+from transformers import pipeline
+
+# Load once globally to avoid reloading every time
+sentiment_pipeline = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment")
+
+def get_combined_sentiment(text: str):
+    # Truncate to avoid tokenizer limit (optional, depending on model)
+    result = sentiment_pipeline(text[:512])[0]
+    label = result['label']
+    score = result['score']
+    sentiment_score = score * 100 if "POSITIVE" in label else (1 - score) * 100
+    return round(sentiment_score, 2), label
+
 
 
 def process_meeting(meeting_id, db):
@@ -168,7 +185,24 @@ def process_meeting(meeting_id, db):
             
             # Calculate rolling sentiment
             rolling_data = get_rolling_sentiment_from_transcript(full_text, name)
-            overall_sentiment = get_sentiment(full_text)
+
+            speaker_text = " ".join([
+            sentence.split(":", 1)[1].strip()
+            for sentence in full_text.split("\n")
+            if sentence.lower().startswith(name.lower() + ":")
+        ])
+
+        # Use Transformer-based sentiment on the speaker's full text
+            if speaker_text:
+                print('Name : ', name)
+                overall_sentiment, label = get_combined_sentiment(speaker_text)
+                print("Speaker Text : ", speaker_text)
+                print("Overall Sentiment : ", overall_sentiment)
+            else:
+                overall_sentiment, label = 50.0, "NEUTRAL"  # fallback
+
+                overall_sentiment = get_sentiment(full_text)
+            
             
             # Save to EmployeeSkills
             db.add(EmployeeSkills(

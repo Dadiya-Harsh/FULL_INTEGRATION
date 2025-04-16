@@ -89,7 +89,6 @@ def login_page():
                 st.rerun()
             else:
                 st.error("🚫 Invalid email or employee not found")
-
 def display_meeting_data(name, meeting_id=None):
     meetings = get_employee_meetings(name)
     if not meetings:
@@ -97,7 +96,12 @@ def display_meeting_data(name, meeting_id=None):
         return
 
     st.markdown("### 📅 Select a Meeting")
-    selected_meeting = st.selectbox("Meeting List", options=meetings, format_func=lambda x: f"📝 Meeting {x}")
+    selected_meeting = st.selectbox(
+        "Meeting List", 
+        options=meetings, 
+        format_func=lambda x: f"📝 Meeting {x}",
+        key=f"meeting_selectbox_{name}"  # Unique key for each user
+    )
 
     col1, col2 = st.columns(2)
 
@@ -135,6 +139,7 @@ def display_meeting_data(name, meeting_id=None):
     else:
         st.warning("No sentiment data found for this meeting.")
 
+
 def employee_dashboard():
     st.markdown(f"## 👋 Welcome, **{st.session_state.user_name}** ({st.session_state.user_role})")
     st.divider()
@@ -150,7 +155,11 @@ def manager_dashboard():
 
     st.markdown("### 👥 Team Overview")
     employee_names = [e.name for e in get_all_employees(role_filter="Employee")]
-    selected = st.selectbox("🔍 Select an employee", employee_names)
+    selected = st.selectbox(
+        "🔍 Select an employee", 
+        employee_names, 
+        key=f"employee_selectbox_manager_{st.session_state.user_name}"  # Unique key for each manager
+    )
     if selected:
         display_meeting_data(selected)
 
@@ -165,7 +174,11 @@ def hr_dashboard():
     st.markdown("### 🧑‍💼 View Employee/Manager Data")
     all_emps = get_all_employees()
     names = [emp.name for emp in all_emps if emp.role != 'HR']
-    selected = st.selectbox("🔍 Select a member", names)
+    selected = st.selectbox(
+        "🔍 Select a member", 
+        names,
+        key=f"employee_selectbox_hr_{st.session_state.user_name}"  # Unique key for HR
+    )
     if selected:
         display_meeting_data(selected)
 
@@ -179,6 +192,7 @@ def hr_dashboard():
     col2.metric("👩‍💼 Managers", total_mgrs)
     col3.metric("🧑‍💼 HRs", total_hr)
     col4.metric("🌐 Total Users", len(all_emps))
+
 
 # -------------------- Main App --------------------
 
