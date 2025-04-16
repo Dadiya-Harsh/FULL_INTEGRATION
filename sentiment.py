@@ -2,7 +2,13 @@ import re
 from groq import Groq
 import os
 from nltk.sentiment import SentimentIntensityAnalyzer
+import nltk
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
+try:
+    nltk.data.find("sentiment.vader_lexicon")
+except LookupError:
+    nltk.download('vader_lexicon')
 
 client = Groq(api_key=os.environ["GROQ_API_KEY"])
 sia = SentimentIntensityAnalyzer()
