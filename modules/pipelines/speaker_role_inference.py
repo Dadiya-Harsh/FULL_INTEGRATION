@@ -4,7 +4,6 @@ from modules.prompts import identify_speaker_role_prompt, format_transcript_for_
 from modules.llm import get_groq_response
 import json
 
-
 class SpeakerRoleInferencePipeline:
     def __init__(self, audio_file_path: str):
         self.audio_file_path = audio_file_path
@@ -39,7 +38,6 @@ class SpeakerRoleInferencePipeline:
             label = speaker_labels.get(speaker_key, speaker_key)
             labeled.append({**entry, "speaker": label})
         return labeled
-
 
     def diarize_and_transcribe(self, audio_path):
         return SpeechProcessingPipeline(audio_path).run_pipeline()
