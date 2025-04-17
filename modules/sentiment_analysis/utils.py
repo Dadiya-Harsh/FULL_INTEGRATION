@@ -558,20 +558,19 @@ def fetch_all_employees():
 #=========================================
 # from groq import Groq  # make sure this is installed: pip install groq
 
-
 def validate_speaker_roles_with_llm(transcript):
     prompt = f"""
 You are an AI assistant helping to review meeting transcripts.
 Each part of the transcript is labeled with speakers like 'Speaker 0', 'Speaker 1', etc.
 
-Please check if these speaker labels match the actual roles (e.g., Manager, Employee, HR) based on their dialogue content.
+Please check the speakers' dialogues and suggest appropriate names for them based on the context of the conversation.
 
 Return a JSON object in this format ONLY:
 {{
   "status": "ok" or "correction_needed",
   "suggested_labels": {{
-    "Speaker 0": "Vivek",
-    "Speaker 1": "Ansh",
+    "speaker_0": "Suggested Name 1",
+    "speaker_1": "Suggested Name 2",
     ...
   }}
 }}
@@ -588,4 +587,3 @@ Transcript:
     )
 
     return chat_completion.choices[0].message.content
-

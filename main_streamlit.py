@@ -1,10 +1,11 @@
 
+import json
 import os
 import requests
 from flask import Flask, jsonify
 from threading import Thread
 from apscheduler.schedulers.background import BackgroundScheduler
-from modules.sentiment_analysis.utils import fetch_all_employees
+from modules.sentiment_analysis.utils import fetch_all_employees, validate_speaker_roles_with_llm
 import streamlit as st
 
 from modules.sentiment_analysis.processor import process_new_meetings
@@ -98,7 +99,6 @@ if 'transcript_ready' not in st.session_state:
 if 'labeled_transcript' not in st.session_state:
     st.session_state.labeled_transcript = None
 
-
 def main():
     if not st.session_state.authenticated:
         login_page()
@@ -153,32 +153,66 @@ def main():
             st.subheader("🔢 How many unique speakers?")
             num_speakers = st.number_input("Number of Speakers", min_value=1, max_value=10, value=2, step=1)
 
-            st.subheader("✍️ Assign Role Labels")
+            st.subheader("✍️ Assign Role Labels (Manual with LLM Help)")
             from collections import defaultdict
 
             employees = fetch_all_employees()
+            num_speakers = st.session_state.num_speakers if "num_speakers" in st.session_state else 2
+
+            # Init suggestion store
+            if "llm_suggestions" not in st.session_state:
+                st.session_state.llm_suggestions = {}
+
+            # Step 1: Get LLM suggestions
+            if st.button("🤖 Suggest Speaker Names using LLM"):
+                with st.spinner("LLM is analyzing transcript..."):
+                    raw_transcript_text = "\n".join([f"{s['speaker']}: {s['text']}" for s in st.session_state.samples])
+                    llm_output = validate_speaker_roles_with_llm(raw_transcript_text)
+                    llm_suggestions = json.loads(llm_output)["suggested_labels"]
+                    # Normalize keys to match the format "speaker_0", "speaker_1"
+                    llm_suggestions = {k.lower().replace(" ", "_"): v for k, v in llm_suggestions.items()}
+                    st.session_state.llm_suggestions = llm_suggestions
+
+                st.success("✅ Suggestions ready below!")
+
+            # Step 2: Show LLM suggestions (if available)
+            if st.session_state.llm_suggestions:
+                st.markdown("### 🧠 LLM Suggested Labels:")
+                for speaker, name in st.session_state.llm_suggestions.items():
+                    st.markdown(f"- **{speaker}** → 🧠 `{name}`")
+                st.info("These names are pre-filled in the dropdowns below. You can adjust them manually.")
+
+            # Step 3: Manual dropdowns (pre-filled)
+            st.markdown("### ✍️ Assign Roles to Speakers")
+            manual_labels = {}
             selected_employees = []
-            speaker_labels = {}
 
             for i in range(num_speakers):
-                key = f"speaker_{i}"
+                key = f"speaker_{i}"  # ✅ Updated key format to match the transcript format
                 available_options = [emp for emp in employees if emp not in selected_employees]
 
-                if not available_options:
-                    st.warning("No more available employees to assign.")
-                    break
+                # Get LLM suggestion for the speaker (if available)
+                suggested_name = st.session_state.llm_suggestions.get(key)
+                default_index = available_options.index(suggested_name) if suggested_name in available_options else 0
 
                 selected = st.selectbox(
-                    f"Select employee for {key}", available_options, key=f"select_{key}"
+                    f"Select employee for {key}",
+                    options=available_options,
+                    index=default_index,
+                    key=f"select_{key}"
                 )
-                speaker_labels[key] = selected
+
+                manual_labels[key] = selected
                 selected_employees.append(selected)
 
-            if st.button("✅ Apply Speaker Labels"):
-                with st.spinner("🔄 Mapping labels to full transcript..."):
-                    transcript = st.session_state.pipeline.apply_manual_labels(speaker_labels)
+            # Step 4: Apply final labels
+            if st.button("✅ Apply Selected Labels"):
+                with st.spinner("🔄 Mapping speaker roles to transcript..."):
+                    transcript = st.session_state.pipeline.apply_manual_labels(manual_labels)
                     st.session_state.labeled_transcript = transcript
-                st.success("🎯 Speaker roles successfully applied!")
+                st.success("🎯 Speaker roles assigned successfully!")
+                st.rerun()
+
 
         if st.session_state.labeled_transcript:
             st.subheader("🗒️ Final Transcript with Labels")
