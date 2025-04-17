@@ -9,32 +9,69 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 import google.generativeai as genai
 from groq import Groq
-import nltk
 import psycopg2
 
 from modules.db.models import *
 from modules.sentiment_analysis.sentiment import *
-
+from nltk.tokenize import sent_tokenize
 load_dotenv()
 
 # Configure external APIs
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+# client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+
+
+# List of your API keys
+API_KEYS = [
+    os.getenv("GROQ_API_KEY_1"),
+    os.getenv("GROQ_API_KEY_2"),
+
+]
+
+# Variable to track current API key in use
+current_api_key_index = 0
+
+# Function to get a new Groq client with the next API key in the list
+def get_new_client():
+    global current_api_key_index
+    current_api_key_index = (current_api_key_index + 1) % len(API_KEYS)
+    api_key = API_KEYS[current_api_key_index]
+    return Groq(api_key=api_key)
+
+# Initialize Groq client
+client = get_new_client()
+
 genai.configure(api_key=os.getenv("GENAI_API_KEY"))
 
 #===============================
 # CHUNKING FUNCTION
 #===============================
-from transformers import GPT2Tokenizer
+from transformers import BartForConditionalGeneration, BartTokenizer
+import nltk
 
-# Initialize the tokenizer (no model required)
-tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+
+# Load the BART model and tokenizer for summarization
+model = BartForConditionalGeneration.from_pretrained('facebook/bart-large-cnn')
+tokenizer = BartTokenizer.from_pretrained('facebook/bart-large-cnn')
+
 
 # Function to count tokens in a string
 def count_tokens(text):
     return len(tokenizer.encode(text))
 
-def chunk_text(text, max_tokens=2048, overlap=200):
-    sentences = nltk.sent_tokenize(text)
+# Function for summarizing text with BART
+def summarize_text(text, max_input_length=1024, max_output_length=150):
+    inputs = tokenizer.encode("summarize: " + text, return_tensors="pt", max_length=max_input_length, truncation=True)
+    summary_ids = model.generate(inputs, max_length=max_output_length, num_beams=4, early_stopping=True)
+    summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+    return summary
+
+# Function to chunk text to respect token limit (for the summarization process)
+def chunk_text(text, max_tokens=1024, overlap=200):
+    import nltk
+    nltk.download("punkt", quiet=True)
+    from nltk.tokenize import sent_tokenize
+    sentences = sent_tokenize(text)
     chunks = []
     current_chunk = []
     current_len = 0
@@ -55,6 +92,16 @@ def chunk_text(text, max_tokens=2048, overlap=200):
         chunks.append(" ".join(current_chunk))
 
     return chunks
+
+# Function to chunk and summarize text (to handle long transcripts)
+def chunk_and_summarize_text(text, max_input_length=1024, max_output_length=150, max_tokens=1024, overlap=200):
+    # Here we chunk the text into manageable chunks of size `max_input_length`
+    chunks = chunk_text(text, max_tokens=max_tokens, overlap=overlap)  # Pass the overlap parameter to chunk_text
+    summaries = [summarize_text(chunk, max_input_length=max_input_length, max_output_length=max_output_length) for chunk in chunks]
+    return " ".join(summaries)
+
+
+
 #=====================================
 # Main Sentiment & Recommendation Extractor
 #=====================================
@@ -99,7 +146,7 @@ def chunk_text(text, max_tokens=2048, overlap=200):
 
  
 def get_tasks_from_llm(text):
-    chunks = chunk_text(text, max_tokens=2048, overlap=100)
+    chunks = chunk_and_summarize_text(text, max_tokens=2048, overlap=100)
     all_tasks = []
 
     for chunk in chunks:
@@ -283,114 +330,6 @@ def get_combined_sentiment(text: str):
 #  Meeting Processing Function
 #=====================================
 
-# def process_meeting(meeting_id, db):
-#     try:
-#         transcripts = db.query(MeetingTranscript).filter(
-#             MeetingTranscript.meeting_id == meeting_id,
-#             MeetingTranscript.processed == False
-#         ).all()
-
-#         if not transcripts:
-#             return []
-
-#         meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
-#         if not meeting:
-#             raise ValueError(f"Meeting with ID {meeting_id} does not exist")
-
-#         participants = {}
-#         for transcript in transcripts:
-#             if transcript.name not in participants:
-#                 employee = db.query(Employee).filter(Employee.name == transcript.name).first()
-#                 participants[transcript.name] = {
-#                     "role": employee.role if employee else "Participant",
-#                     "texts": []
-#                 }
-#             participants[transcript.name]["texts"].append(f"{transcript.name}: {transcript.text}")
-
-#         results = []
-#         for name, data in participants.items():
-#             full_text = "\n".join(data["texts"])
-
-#             _, skills, _ = get_sentiment_and_recommendations(full_text, name)
-            
-#             tasks = get_tasks_from_llm(full_text)
-#             rolling_data = get_rolling_sentiment_from_transcript(full_text, name)
-
-#             speaker_text = " ".join([
-#                 sentence.split(":", 1)[1].strip()
-#                 for sentence in full_text.split("\n")
-#                 if sentence.lower().startswith(name.lower() + ":")
-#             ])
-#             print("=====================SPEAKER TEXT=====================")
-#             print(f'Spaekar Name :- {name},Speaker Text:{speaker_text}')
-#             print("=====================================================")
-            
-#             if speaker_text:
-#                 overall_sentiment= get_sentiment(speaker_text)
-#                 print("=====================================================")
-#                 print("OVERALL SENTIMENT : ",overall_sentiment)
-#                 print("=====================================================")
-#             else:
-#                 overall_sentiment = 50.0
-            
-#             # advanced_scores = get_detailed_scores_from_llm(speaker_text, name)
-#             # Save to DB
-#             db.add(EmployeeSkills(
-#                 meeting_id=meeting_id,
-#                 overall_sentiment_score=overall_sentiment,
-#                 role=data["role"],
-#                 employee_name=name
-#             ))
-
-#             for skill in skills[:3]:
-#                 db.add(SkillRecommendation(
-#                     meeting_id=meeting_id,
-#                     skill_recommendation=skill,
-#                     name=name
-#                 ))
-
-#             for task in tasks:
-#                 db.add(TaskRecommendation(  # Add to the session
-#                     meeting_id=meeting_id,
-#                     task=task["task"],
-#                     assigned_by=task["assigned_by"] or name,
-#                     assigned_to=task["assigned_to"] or name,
-#                     deadline=task["deadline"] or "N/A",
-#                     status=task["status"] or "Pending"
-#                 ))
-
-
-#             if rolling_data:
-#                 db.add(RollingSentiment(
-#                     meeting_id=meeting_id,
-#                     name=name,
-#                     role=data["role"],
-#                     rolling_sentiment=json.dumps({
-#                         "scores": rolling_data,
-#                         "average": overall_sentiment
-#                     })
-#                 ))
-
-#             # Mark transcript as processed
-#             for transcript in transcripts:
-#                 if transcript.name == name:
-#                     transcript.processed = True
-
-#             results.append({
-#                 "meeting_id": meeting_id,
-#                 "name": name,
-#                 "role": data["role"],
-#                 "sentiment": overall_sentiment,
-#                 "skills": skills,
-#                 "tasks": tasks,
-#                 "rolling_sentiment": rolling_data
-#             })
-
-#         return results
-
-#     except Exception as e:
-#         db.rollback()
-#         raise e
 
 
 def process_meeting(meeting_id, db):
@@ -587,3 +526,4 @@ Transcript:
     )
 
     return chat_completion.choices[0].message.content
+

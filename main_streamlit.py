@@ -5,7 +5,7 @@ import requests
 from flask import Flask, jsonify
 from threading import Thread
 from apscheduler.schedulers.background import BackgroundScheduler
-from modules.sentiment_analysis.utils import fetch_all_employees, validate_speaker_roles_with_llm
+from modules.sentiment_analysis.utils import chunk_and_summarize_text, fetch_all_employees, validate_speaker_roles_with_llm
 import streamlit as st
 
 from modules.sentiment_analysis.processor import process_new_meetings
@@ -175,6 +175,8 @@ def main():
             if st.button("🤖 Suggest Speaker Names using LLM"):
                 with st.spinner("LLM is analyzing transcript..."):
                     raw_transcript_text = "\n".join([f"{s['speaker']}: {s['text']}" for s in st.session_state.samples])
+                    # summarized_transcript = chunk_and_summarize_text(raw_transcript_text)
+
                     llm_output = validate_speaker_roles_with_llm(raw_transcript_text)
                     llm_suggestions = json.loads(llm_output)["suggested_labels"]
                     # Normalize keys to match the format "speaker_0", "speaker_1"
