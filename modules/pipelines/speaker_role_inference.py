@@ -40,12 +40,34 @@ class SpeakerRoleInferencePipeline:
         return labeled
 
     def diarize_and_transcribe(self, audio_path):
+        """
+        Processes audio file through speaker diarization and transcription.
+        
+        Uses SpeechProcessingPipeline to identify different speakers and 
+        transcribe their speech into text.
+        
+        Args:
+            audio_path (str): Path to the audio file to process
+            
+        Returns:
+            list: List of dictionaries containing speaker-labeled transcript segments
+                  with keys 'speaker', 'start', 'end', and 'text'
+        """
         return SpeechProcessingPipeline(audio_path).run_pipeline()
 
     def sample_utterances(self, transcript, max_per_speaker=3):
         """
-        Samples up to `max_per_speaker` utterances per speaker and returns a flat list
-        of dicts with speaker and utterance keys.
+        Samples utterances from each speaker in the transcript.
+        
+        Extracts up to a specified maximum number of utterances per speaker
+        to create a representative sample for role identification.
+        
+        Args:
+            transcript (list): List of transcript entries with speaker and text
+            max_per_speaker (int, optional): Maximum utterances to sample per speaker. Defaults to 3.
+            
+        Returns:
+            list: List of dictionaries with 'speaker' and 'text' keys
         """
         utterance_count = {}
         samples = []
@@ -65,7 +87,21 @@ class SpeakerRoleInferencePipeline:
         return samples
 
     def identify_roles(self, samples):
-        # return infer_speaker_roles(samples)  # Use your Groq LLM logic
+        """
+        Identifies speaker roles based on sampled utterances.
+        
+        Uses LLM to analyze speech patterns and content to infer
+        the most likely role for each speaker.
+        
+        Args:
+            samples (list): List of dictionaries with speaker utterances
+            
+        Returns:
+            dict: Mapping of speaker IDs to inferred roles
+            
+        Raises:
+            json.JSONDecodeError: If LLM response cannot be parsed as JSON
+        """
         formatted = format_transcript_for_roles(samples)
         prompt = identify_speaker_role_prompt(formatted)
         
@@ -80,10 +116,35 @@ class SpeakerRoleInferencePipeline:
             raise
 
     def label_full_transcript(self, transcript, role_mapping):
+        """
+        Applies role labels to the full transcript.
+        
+        Maps the identified roles from the role_mapping dictionary
+        to each entry in the complete transcript.
+        
+        Args:
+            transcript (list): Complete transcript with speaker IDs
+            role_mapping (dict): Mapping of speaker IDs to role labels
+            
+        Returns:
+            list: Transcript with speaker IDs replaced by role labels
+        """
         return [
             {**entry, "speaker": role_mapping.get(f"Speaker_{entry['speaker'].split('_')[1]}", entry['speaker'])}
             for entry in transcript
         ]
 
     def insert_to_db(self, enriched_transcript):
+        """
+        Persists the enriched transcript to the database.
+        
+        Stores the transcript with speaker role labels in the database
+        for future reference and analysis.
+        
+        Args:
+            enriched_transcript (list): Transcript with speaker roles applied
+            
+        Returns:
+            None
+        """
         insert_transcript(enriched_transcript)
