@@ -4,7 +4,7 @@ import os
 from nltk.sentiment import SentimentIntensityAnalyzer
 
 
-client = Groq(api_key=os.environ["GROQ_API_KEY"])
+# client = Groq(api_key=os.environ["GROQ_API_KEY"])
 sia = SentimentIntensityAnalyzer()
 
 sentiment_thresholds = {

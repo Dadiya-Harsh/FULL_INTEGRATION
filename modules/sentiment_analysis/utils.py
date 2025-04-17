@@ -262,11 +262,17 @@ def process_meeting(meeting_id, db):
                 for sentence in full_text.split("\n")
                 if sentence.lower().startswith(name.lower() + ":")
             ])
-
+            print("=====================SPEAKER TEXT=====================")
+            print(f'Spaekar Name :- {name},Speaker Text:{speaker_text}')
+            print("=====================================================")
+            
             if speaker_text:
-                overall_sentiment, label = get_combined_sentiment(speaker_text)
+                overall_sentiment= get_sentiment(speaker_text)
+                print("=====================================================")
+                print("OVERALL SENTIMENT : ",overall_sentiment)
+                print("=====================================================")
             else:
-                overall_sentiment, label = 50.0, "NEUTRAL"
+                overall_sentiment = 50.0
             
             # advanced_scores = get_detailed_scores_from_llm(speaker_text, name)
             # Save to DB
@@ -285,7 +291,7 @@ def process_meeting(meeting_id, db):
                 ))
 
             for task in tasks:
-                db.add(TaskRecommendation(
+                (TaskRecommendation(
                     meeting_id=meeting_id,
                     task=task["task"],
                     assigned_by=task["assigned_by"] or name,
