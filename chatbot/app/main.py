@@ -70,16 +70,19 @@ def main():
     query = st.text_input("Enter your query (e.g., 'Show my tasks')")
     if st.button("Submit Query"):
         if query:
-            response = st.session_state.chatbot_handler.process_query(
-                query, st.session_state.employee_id
-            )
-            if response["status"] == "success":
-                st.success(response["message"])
-                st.json(response["data"])
-            else:
-                st.error(response["message"])
-        else:
-            st.warning("Please enter a query")
+            try:
+                response = st.session_state.chatbot_handler.process_query(query, st.session_state.employee_id)
+                if isinstance(response, dict) and response.get("status") == "success":
+                    st.success(response["message"])
+                    st.json(response["data"])
+                elif isinstance(response, dict):
+                    st.error(response.get("message", "An error occurred."))
+                else:
+                    st.error("Unexpected response format.")
+                    logging.error(f"Unexpected response: {response}")
+            except Exception as e:
+                st.error(f"Error processing query: {str(e)}")
+                logging.exception("Error processing query")
 
     # Logout button
     if st.button("Logout"):

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # services/data_access.py
+import logging
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any, Union
 from models import (
@@ -85,11 +86,15 @@ class DataAccessLayer:
         self.rbac.log_access(current_user_id, "task", task_id, "view", False)
         return {"data": None, "error": "Access denied"}
     
-    def get_tasks(self, current_user_id: int) -> Dict[str, Any]:
+    def get_tasks(self, current_user_id: int) -> list:
         """Get tasks with RBAC filtering."""
         tasks = self.rbac.filter_tasks_for_user(current_user_id)
-        self.rbac.log_access(current_user_id, "tasks", 0, "view_filtered", True)
-        return {"data": [self._serialize_task(task) for task in tasks], "error": None}
+        # self.rbac.log_access(current_user_id, "tasks", 0, "view_filtered", True)
+        logging.debug(f"Tasks from RBAC filter: {tasks}, Type: {type(tasks)}")
+        if not isinstance(tasks, list):
+            logging.error(f"Expected list of tasks, got {type(tasks)}: {tasks}")
+            return []
+        return tasks    
     
     def create_task(self, task_data: Dict[str, Any], current_user_id: int) -> Dict[str, Any]:
         """Create a task with RBAC checks."""

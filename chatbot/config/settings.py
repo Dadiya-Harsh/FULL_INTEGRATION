@@ -7,11 +7,10 @@ from sql_agent_tool.models import LLMConfig
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@19.168.10.74:5433/testdb")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "your-api-key")
+GROQ_API_KEY = os.getenv("GEMINI_API_KEY", "your-api-key")
 
 LLMConfig = LLMConfig(
-    provider="groq",
+    provider="gemini",
     api_key=GROQ_API_KEY,
-    model="llama-3.3-70b-versatile",
-    max_tokens=500
+    model="models/gemini-1.5-flash",
 )
