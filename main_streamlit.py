@@ -201,7 +201,7 @@ def main():
             selected_employees = []
             speaker_labels = {}
 
-            for i in range(st.session_state.num_speakers):
+            for i in range(num_speakers):  # Use the defined variable instead
                 key = f"speaker_{i}"
                 available_options = [emp for emp in employees if emp not in selected_employees]
 
