@@ -3,10 +3,10 @@
 from typing import Dict, Any
 from sqlalchemy.orm import Session
 from sql_agent_tool import SQLAgentTool
-from services.data_access import DataAccessLayer
-from services.rbac_service import RBACService
-from app.query_classifier import classify_query
-from app.utils import format_response, serialize_result
+from chatbot.services.data_access import DataAccessLayer
+from chatbot.services.rbac_service import RBACService
+from chatbot.app.query_classifier import classify_query
+from chatbot.app.utils import format_response, serialize_result
 
 class ChatbotHandler:
     def __init__(self, db_session: Session, sql_agent: SQLAgentTool):

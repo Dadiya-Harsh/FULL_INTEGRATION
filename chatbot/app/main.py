@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 # app/main.py
 import streamlit as st
-from app.auth import authenticate_user
-from app.chatbot_handler import ChatbotHandler
-from config.settings import DATABASE_URL, LLMConfig
+from chatbot.app.auth import authenticate_user
+from chatbot.app.chatbot_handler import ChatbotHandler
+from chatbot.config.settings import DATABASE_URL, LLMConfig
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sql_agent_tool import SQLAgentTool
@@ -17,10 +17,10 @@ SessionLocal = sessionmaker(bind=engine)
 db_config = DatabaseConfig(
     drivername="postgresql",
     username="postgres",  # Loaded from .env in production
-    password="root",
-    host="localhost",
-    port=5432,
-    database="test_sentiment_analysis"
+    password="password",
+    host="192.168.10.74",
+    port=5433,
+    database="test1"
 )
 sql_agent = SQLAgentTool(db_config, LLMConfig)
 

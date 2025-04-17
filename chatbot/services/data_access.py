@@ -6,7 +6,7 @@ from models import (
     Employee, Task, Meeting, MeetingTranscript, RollingSentiment,
     EmployeeSkills, SkillRecommendation, TaskRecommendation, AccessLog
 )
-from services.rbac_service import RBACService
+from chatbot.services.rbac_service import RBACService
 from datetime import datetime
 
 class DataAccessLayer:
