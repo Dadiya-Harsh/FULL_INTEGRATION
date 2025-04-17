@@ -15,31 +15,11 @@ from modules.db.models import *
 from modules.sentiment_analysis.sentiment import *
 from nltk.tokenize import sent_tokenize
 load_dotenv()
+import time
 
 # Configure external APIs
-# client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-
-
-# List of your API keys
-API_KEYS = [
-    os.getenv("GROQ_API_KEY_1"),
-    os.getenv("GROQ_API_KEY_2"),
-
-]
-
-# Variable to track current API key in use
-current_api_key_index = 0
-
-# Function to get a new Groq client with the next API key in the list
-def get_new_client():
-    global current_api_key_index
-    current_api_key_index = (current_api_key_index + 1) % len(API_KEYS)
-    api_key = API_KEYS[current_api_key_index]
-    return Groq(api_key=api_key)
-
-# Initialize Groq client
-client = get_new_client()
 
 genai.configure(api_key=os.getenv("GENAI_API_KEY"))
 
@@ -105,92 +85,48 @@ def chunk_and_summarize_text(text, max_input_length=1024, max_output_length=150,
 #=====================================
 # Main Sentiment & Recommendation Extractor
 #=====================================
-# def get_tasks_from_llm(text):
-#     prompt = f"""
-#         Analyze the transcript and extract **only the top 3 most necessary tasks** mentioned in the conversation.
-#         A task is any responsibility, goal, or action item that is explicitly or implicitly assigned to someone.
-#         If a person **suggests, hints, or indirectly implies** a responsibility, goal, or action item,
-#         treat it as a task. Include reflective, planning, and preparatory tasks.
+def get_tasks_from_llm(text):
+    prompt = f"""
+        Analyze the transcript and extract **only the top 3 most necessary tasks** mentioned in the conversation.
+        A task is any responsibility, goal, or action item that is explicitly or implicitly assigned to someone.
+        If a person **suggests, hints, or indirectly implies** a responsibility, goal, or action item,
+        treat it as a task. Include reflective, planning, and preparatory tasks.
 
-#         Focus on identifying tasks that are most critical for outcomes, follow-ups, or decision-making.
+        Focus on identifying tasks that are most critical for outcomes, follow-ups, or decision-making.
 
-#         Respond in the following strict JSON format ONLY:
-#         {{
-#             "tasks": [
-#                 {{
-#                     "task": "description",
-#                     "assigned_by": "Person assigning the task",
-#                     "assigned_to": "Person responsible for the task",
-#                     "deadline": "Suggested deadline",
-#                     "status": "Task status"
-#                 }}
-#             ]
-#         }}
+        Respond in the following strict JSON format ONLY:
+        {{
+            "tasks": [
+                {{
+                    "task": "description",
+                    "assigned_by": "Person assigning the task",
+                    "assigned_to": "Person responsible for the task",
+                    "deadline": "Suggested deadline",
+                    "status": "Task status"
+                }}
+            ]
+        }}
 
-#         Transcript:
-#         {text}
-#     """
-#     try:
-#         chat_completion = client.chat.completions.create(
-#             messages=[{"role": "user", "content": prompt}],
-#             model="llama3-8b-8192",
-#             response_format={"type": "json_object"},
-#             temperature=0.3
-#         )
+        Transcript:
+        {text}
+    """
+    try:
+        chat_completion = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama3-8b-8192",
+            response_format={"type": "json_object"},
+            temperature=0.3
+        )
 
-#         response_text = chat_completion.choices[0].message.content
-#         return parse_response(response_text)
-#     except Exception as e:
-#         print(f"Error generating content: {e}")
-#         return 0.0, [], []
+        response_text = chat_completion.choices[0].message.content
+        _, _, tasks = parse_response(response_text)
+        return tasks
+        # return parse_response(response_text)
+    except Exception as e:
+        print(f"Error generating content: {e}")
+        return []
 
  
-def get_tasks_from_llm(text):
-    chunks = chunk_and_summarize_text(text, max_tokens=2048, overlap=100)
-    all_tasks = []
-
-    for chunk in chunks:
-        prompt = f"""
-            Analyze the following transcript chunk and extract up to 3 necessary tasks.
-            Focus on responsibilities, goals, or action items that are critical, either explicitly or implicitly stated.
-
-            Respond in strict JSON ONLY:
-            {{
-                "tasks": [
-                    {{
-                        "task": "description",
-                        "assigned_by": "Person assigning the task",
-                        "assigned_to": "Person responsible for the task",
-                        "deadline": "Suggested deadline",
-                        "status": "Task status"
-                    }}
-                ]
-            }}
-
-            Transcript:
-            {chunk}
-        """
-        try:
-            chat_completion = client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
-                model="llama3-8b-8192",
-                response_format={"type": "json_object"},
-                temperature=0.3
-            )
-            response_text = chat_completion.choices[0].message.content
-            _, _, chunk_tasks = parse_response(response_text)
-            all_tasks.extend(chunk_tasks)
-
-        except Exception as e:
-            logging.error(f"Error processing chunk {chunk[:100]}...: {e}")
-
-    # Deduplicate tasks and select top 3 tasks
-    unique_tasks = {json.dumps(task, sort_keys=True): task for task in all_tasks}
-    top_tasks = list(unique_tasks.values())[:3]
-
-    return top_tasks if top_tasks else [{"task": "No tasks extracted", "assigned_by": "", "assigned_to": "", "deadline": "", "status": "Not assigned"}]
-
-
 def get_sentiment_and_recommendations(text, person_name):
 
     prompt = f"""
@@ -241,8 +177,7 @@ def get_sentiment_and_recommendations(text, person_name):
         return parse_response(response_text)
     except Exception as e:
         print(f"Error generating content: {e}")
-        return 0.0, [], []
-
+        return []
 
 
 #=====================================

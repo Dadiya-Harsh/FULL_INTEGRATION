@@ -31,49 +31,9 @@ app = Flask(__name__)
 def home():
     return "Flask backend is running!"
 
-@app.route("/process_unprocessed", methods=["POST"])
-def process_unprocessed():
-    try:
-        result = process_new_meetings()
-        if "error" in result:
-            return jsonify({"status": "error", "message": result["error"]}), 500
-        return jsonify({"status": "success", "data": result}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
 
 def start_flask():
     app.run(port=5000, debug=False, use_reloader=False)
-
-# def scheduled_processing():
-#     print("⏰ Auto-scheduler triggered.")
-#     try:
-#         process_new_meetings()
-#     except Exception as e:
-#         print(f"Scheduled processing error: {e}")
-
-
-def scheduled_processing():
-    safe_print("⏰ Auto-scheduler triggered.")
-    try:
-        process_new_meetings()
-    except Exception as e:
-        safe_print(f"Scheduled processing error: {e}")
-
-# scheduler = BackgroundScheduler()
-# scheduler.add_job(func=scheduled_processing, trigger="interval", minutes=1)
-# scheduler.start()
-
-
-scheduler = BackgroundScheduler()
-scheduler.add_job(
-    func=scheduled_processing,
-    trigger='interval',
-    minutes=1,
-    max_instances=1,
-    misfire_grace_time=30  # Optionally skip jobs that fall behind
-)
-scheduler.start()
-
 
 
 # ============================
@@ -237,6 +197,16 @@ def main():
                 with st.spinner("💾 Saving transcript..."):
                     st.session_state.pipeline.insert_to_db(st.session_state.labeled_transcript)
                     st.success("✅ Transcript saved to database!")
+
+                    # 🔄 Immediately process the new meeting transcript
+                    with st.spinner("⚙️ Processing meeting sentiment and metrics..."):
+                        from modules.sentiment_analysis.processor import process_new_meetings
+                        result = process_new_meetings()
+                        if "error" in result:
+                            st.error(f"❌ Processing failed: {result['error']}")
+                        else:
+                            st.success("✅ Transcript processing complete!")
+
 
             if st.button("🔄 Start Over"):
                 for key in ["pipeline", "samples", "transcript_ready", "labeled_transcript"]:
