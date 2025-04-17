@@ -6,10 +6,24 @@ import json
 
 class SpeakerRoleInferencePipeline:
     def __init__(self, audio_file_path: str):
+        """
+        Initialize the speaker role inference pipeline.
+        
+        Args:
+            audio_file_path (str): Path to the audio file to process
+        """
         self.audio_file_path = audio_file_path
         self.transcript = None
+        self.speech_pipeline = None
+        self.num_speakers = 0
 
     def run(self):
+        """
+        Runs the complete pipeline from audio to enriched transcript.
+        
+        Returns:
+            list: Enriched transcript with speaker roles
+        """
         transcript = self.diarize_and_transcribe(self.audio_file_path)
         samples = self.sample_utterances(transcript)
         role_mapping = self.identify_roles(samples)
@@ -20,10 +34,27 @@ class SpeakerRoleInferencePipeline:
     def run_for_raw_transcript(self):
         """
         Returns sampled utterances for preview before mapping.
+        
+        Also determines the number of speakers in the audio.
+        
+        Returns:
+            tuple: (samples, num_speakers) where samples is a list of utterances
+                  and num_speakers is the count of unique speakers
         """
-        self.transcript = self.diarize_and_transcribe(self.audio_file_path)
+        self.speech_pipeline = SpeechProcessingPipeline(self.audio_file_path)
+        self.transcript = self.speech_pipeline.run_pipeline()
+        self.num_speakers = self.speech_pipeline.get_speaker_count()
         self.samples = self.sample_utterances(self.transcript)
-        return self.samples
+        return self.samples, self.num_speakers
+
+    def get_speaker_count(self):
+        """
+        Returns the number of unique speakers detected in the transcript.
+        
+        Returns:
+            int: Number of unique speakers
+        """
+        return self.num_speakers
 
     def apply_manual_labels(self, speaker_labels: dict):
         """

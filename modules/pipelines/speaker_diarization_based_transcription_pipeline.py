@@ -58,6 +58,7 @@ class SpeechProcessingPipeline:
         self.wav_file = None
         self.rttm_file = None
         self.diarized_transcript = None
+        self.num_speakers = None
 
     def run_pipeline(self) -> List[Dict[str, str]]:
         """
@@ -76,6 +77,22 @@ class SpeechProcessingPipeline:
         transcript = self._transcribe_segments()
         self._cleanup()
         return transcript
+        
+    def get_speaker_count(self) -> int:
+        """
+        Returns the number of unique speakers detected in the transcript.
+        
+        This method should be called after run_pipeline() has been executed.
+        
+        Returns:
+            int: Number of unique speakers detected in the audio
+        """
+        if self.diarized_transcript is None:
+            return 0
+            
+        unique_speakers = set(segment["speaker"] for segment in self.diarized_transcript)
+        self.num_speakers = len(unique_speakers)
+        return self.num_speakers
 
     def _convert_to_wav(self):
         """
