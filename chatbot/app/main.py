@@ -10,20 +10,25 @@ from sql_agent_tool import SQLAgentTool
 from sql_agent_tool.models import DatabaseConfig
 import logging
 
-logging.basicConfig(filename="chatbot.log", level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(filename="chatbot.log", level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filemode='w')
 
 # Initialize database
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
 # Initialize sql-agent-tool
 db_config = DatabaseConfig(
-    drivername="postgresql",
-    username="postgres",  # Loaded from .env in production
-    password="password",
-    host="192.168.10.74",
-    port=5433,
-    database="testdb"
+    drivername=os.getenv("DB_DRIVER"),
+    username=os.getenv("DB_USER"),  # Loaded from .env in production
+    password=os.getenv("DB_PASSWORD"),
+    host=os.getenv("DB_HOST"),
+    port=os.getenv("DB_PORT"),
+    database=os.getenv("DB_NAME")
 )
 sql_agent = SQLAgentTool(db_config, LLMConfig)
 

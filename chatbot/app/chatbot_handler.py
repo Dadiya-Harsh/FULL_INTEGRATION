@@ -46,6 +46,10 @@ class ChatbotHandler:
             # Inject user context into query
             context_query = f"{query_text} (user_id: {employee_id}, roles: {','.join(user_context['roles'])}, teams: {','.join(map(str, self.rbac.get_employee_teams(employee_id)))})"
             result = self.sql_agent.process_natural_language_query(context_query)
+            print(f"Raw Result from sql-agent-tool: {result}")
+            logging.info(
+                f"Raw result from sql-agent-tool{result}"
+            )
             if not result.success:
                 logging.error("Query generation has failed..")
                 self.rbac.log_access(employee_id, resource_type, 0, "view", False)
@@ -54,7 +58,7 @@ class ChatbotHandler:
             # Filter results using DataAccessLayer
             filtered_data = self._filter_results(result.data, resource_type, employee_id)
             self.rbac.log_access(employee_id, resource_type, 0, "view", True)
-            logging.info("SQL query has been hgenerated and run successfully..")
+            logging.info("SQL query has been generated and run successfully..")
             return {
                 "status": "success",
                 "message": f"Found {len(filtered_data)} results",

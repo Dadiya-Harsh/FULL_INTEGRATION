@@ -6,3 +6,6 @@
 *.zip
 uploads/
 diar_infer_telephonic.yaml
+
+
+*.log
