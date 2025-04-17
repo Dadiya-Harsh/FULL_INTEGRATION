@@ -7,6 +7,7 @@ from chatbot.services.data_access import DataAccessLayer
 from chatbot.services.rbac_service import RBACService
 from chatbot.app.query_classifier import classify_query
 from chatbot.app.utils import format_response, serialize_result
+import logging
 
 class ChatbotHandler:
     def __init__(self, db_session: Session, sql_agent: SQLAgentTool):
@@ -25,6 +26,7 @@ class ChatbotHandler:
         # Classify query to determine resource and permission
         resource_type, permission_name = classify_query(query_text)
         if not resource_type or not permission_name:
+            logging.warning("LLM is not able to understand to your query, please try to be specific with your tasks..")
             return {
                 "status": "error",
                 "message": "Unable to understand query. Please try a different phrasing."
@@ -33,6 +35,7 @@ class ChatbotHandler:
         # Check permission
         if not self.rbac.has_permission(employee_id, permission_name, resource_type):
             self.rbac.log_access(employee_id, resource_type, 0, "view", False)
+            logging.error("You don't have access or enough permission")
             return {
                 "status": "error",
                 "message": f"You don't have permission to {permission_name} {resource_type}"
@@ -44,12 +47,14 @@ class ChatbotHandler:
             context_query = f"{query_text} (user_id: {employee_id}, roles: {','.join(user_context['roles'])}, teams: {','.join(map(str, self.rbac.get_employee_teams(employee_id)))})"
             result = self.sql_agent.process_natural_language_query(context_query)
             if not result.success:
+                logging.error("Query generation has failed..")
                 self.rbac.log_access(employee_id, resource_type, 0, "view", False)
                 return {"status": "error", "message": "Query failed: " + str(result.error)}
 
             # Filter results using DataAccessLayer
             filtered_data = self._filter_results(result.data, resource_type, employee_id)
             self.rbac.log_access(employee_id, resource_type, 0, "view", True)
+            logging.info("SQL query has been hgenerated and run successfully..")
             return {
                 "status": "success",
                 "message": f"Found {len(filtered_data)} results",

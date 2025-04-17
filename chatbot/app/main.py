@@ -8,6 +8,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sql_agent_tool import SQLAgentTool
 from sql_agent_tool.models import DatabaseConfig
+import logging
+
+logging.basicConfig(filename="chatbot.log", level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Initialize database
 engine = create_engine(DATABASE_URL)
@@ -20,7 +23,7 @@ db_config = DatabaseConfig(
     password="password",
     host="192.168.10.74",
     port=5433,
-    database="test1"
+    database="testdb"
 )
 sql_agent = SQLAgentTool(db_config, LLMConfig)
 
@@ -50,9 +53,11 @@ def main():
                     st.session_state.db_session, sql_agent
                 )
                 st.success("Login successful!")
+                logging.info("Login Sucess..")
                 st.rerun()
             else:
                 st.error("Invalid credentials")
+                logging.error("Invalid Credentials")
         return
 
     # Main chatbot interface
