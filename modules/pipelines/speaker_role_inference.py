@@ -89,4 +89,3 @@ class SpeakerRoleInferencePipeline:
 
     def insert_to_db(self, enriched_transcript):
         insert_transcript(enriched_transcript)
- 
