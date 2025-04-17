@@ -37,7 +37,6 @@ class SpeechProcessingPipeline:
     
     Attributes:
         input_audio (Path): Path to the input audio file.
-        num_speakers (int): Expected number of speakers in the audio.
         model (str): Model size/type to use for transcription.
         audio_stem (str): Base filename without extension.
         wav_file (str): Path to the converted WAV file.
@@ -45,17 +44,15 @@ class SpeechProcessingPipeline:
         diarized_transcript (list): Final processed transcript with speaker labels.
     """
 
-    def __init__(self, input_audio: str, num_speakers: int = 2, model: str = "medium"):
+    def __init__(self, input_audio: str, model: str = "medium"):
         """
         Initialize the speech processing pipeline.
         
         Args:
             input_audio (str): Path to the input audio file.
-            num_speakers (int, optional): Expected number of speakers. Defaults to 2.
             model (str, optional): Model size/type for transcription. Defaults to "medium".
         """
         self.input_audio = Path(input_audio)
-        self.num_speakers = num_speakers
         self.model = model
         self.audio_stem = self.input_audio.stem
         self.wav_file = None
@@ -80,24 +77,6 @@ class SpeechProcessingPipeline:
         self._cleanup()
         return transcript
 
-    # def _convert_to_wav(self):
-    #     """
-    #     Convert the input audio to 16kHz mono WAV format if needed.
-        
-    #     If the input is already in WAV format, it will be used as-is.
-    #     Otherwise, ffmpeg is used to convert the audio to the required format.
-        
-    #     Sets self.wav_file to the path of the resulting WAV file.
-    #     """
-    #     if self.input_audio.suffix == ".wav":
-    #         self.wav_file = str(self.input_audio)
-    #         logging.info("Input is already in WAV format.")
-    #         return
-
-    #     self.wav_file = f"{self.audio_stem}.wav"
-    #     logging.info("Converting to WAV...")
-    #     command = f"ffmpeg -i {self.input_audio} -ar 16000 -ac 1 {self.wav_file} -y"
-    #     subprocess.run(command, shell=True, check=True)
     def _convert_to_wav(self):
         """
         Convert the input audio to 16kHz mono WAV format and normalize waveform shape.
@@ -267,17 +246,29 @@ class SpeechProcessingPipeline:
         Returns:
             str: Transcribed text from the audio segment.
             
+        Raises:
+            ValueError: If GROQ_API_KEY is not set in environment variables.
+            Exception: If there's an error with the Groq API call.
+            
         Note:
             This method is rate-limited to 10 calls per 60 seconds.
         """
-        client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-        with open(filepath, "rb") as file:
-            transcription = client.audio.transcriptions.create(
-                file=(filepath, file.read()),
-                model="distil-whisper-large-v3-en",
-                response_format="verbose_json",
-            )
-        return transcription.text.strip()
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError("GROQ_API_KEY environment variable is not set. Please set it before running the pipeline.")
+        
+        try:
+            client = Groq(api_key=api_key)
+            with open(filepath, "rb") as file:
+                transcription = client.audio.transcriptions.create(
+                    file=(filepath, file.read()),
+                    model="distil-whisper-large-v3-en",
+                    response_format="verbose_json",
+                )
+            return transcription.text.strip()
+        except Exception as e:
+            logging.error(f"Error transcribing audio with Groq API: {str(e)}")
+            raise Exception(f"Failed to transcribe audio segment: {str(e)}")
 
     def _transcribe_segments(self) -> List[Dict[str, str]]:
         """
