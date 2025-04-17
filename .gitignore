@@ -8,6 +8,7 @@ uploads/
 diar_infer_telephonic.yaml
 *.wav
 Testing/
+tests/
 vad_outputs/
 diar_outputs/
 pred_rttms/

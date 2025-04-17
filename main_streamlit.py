@@ -148,15 +148,21 @@ def main():
 
         if st.session_state.transcript_ready and st.session_state.samples:
             st.subheader("📝 Preview Sample Utterances")
+
             for s in st.session_state.samples:
                 st.markdown(f"**{s['speaker']}**: {s['text']}")
+
+            if st.button("🔄 Refresh Samples"):
+                with st.spinner("Resampling utterances..."):
+                    st.session_state.samples, _ = st.session_state.pipeline.run_for_raw_transcript()
+                st.success("✅ Samples updated!")
+                st.rerun()
 
             st.subheader("🔢 Detected Speakers")
             if st.session_state.transcript_ready:
                 st.info(f"Detected {st.session_state.num_speakers} unique speakers in the audio")
 
             st.subheader("✍️ Assign Role Labels")
-            from collections import defaultdict
 
             employees = fetch_all_employees()
             num_speakers = st.session_state.num_speakers if "num_speakers" in st.session_state else 2
@@ -176,14 +182,14 @@ def main():
                     # llm_suggestions = {k.lower().replace(" ", "_"): v for k, v in llm_suggestions.items()}
                     # st.session_state.llm_suggestions = llm_suggestions
                     unique_speakers = sorted(set(s["speaker"] for s in st.session_state.samples))
-        
+
         # Create a mapping from normalized speaker IDs to suggested names
                     normalized_suggestions = {}
                     for i, speaker in enumerate(unique_speakers):
                         key = f"speaker_{i}"
                         if speaker.lower().replace(" ", "_") in llm_suggestions:
                             normalized_suggestions[key] = llm_suggestions[speaker.lower().replace(" ", "_")]
-                    
+
                     st.session_state.llm_suggestions = normalized_suggestions
 
                 st.success("✅ Suggestions ready below!")
@@ -197,7 +203,6 @@ def main():
 
             # Step 3: Manual dropdowns (pre-filled)
             st.markdown("### ✍️ Assign Roles to Speakers")
-            manual_labels = {}
             selected_employees = []
             speaker_labels = {}
 
