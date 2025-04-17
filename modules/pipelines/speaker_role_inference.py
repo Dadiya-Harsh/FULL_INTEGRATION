@@ -1,4 +1,3 @@
-# import loggin
 from modules.pipelines.speaker_diarization_based_transcription_pipeline import SpeechProcessingPipeline
 from modules.db.postgres import insert_transcript
 from modules.prompts import identify_speaker_role_prompt, format_transcript_for_roles
@@ -9,6 +8,7 @@ import json
 class SpeakerRoleInferencePipeline:
     def __init__(self, audio_file_path: str):
         self.audio_file_path = audio_file_path
+        self.transcript = None
 
     def run(self):
         transcript = self.diarize_and_transcribe(self.audio_file_path)
@@ -16,8 +16,30 @@ class SpeakerRoleInferencePipeline:
         role_mapping = self.identify_roles(samples)
         enriched_transcript = self.label_full_transcript(transcript, role_mapping)
         self.insert_to_db(enriched_transcript)
-        # print(f"enriched_transcript: {enriched_transcript}")
         return enriched_transcript
+
+    def run_for_raw_transcript(self):
+        """
+        Returns sampled utterances for preview before mapping.
+        """
+        self.transcript = self.diarize_and_transcribe(self.audio_file_path)
+        self.samples = self.sample_utterances(self.transcript)
+        return self.samples
+
+    def apply_manual_labels(self, speaker_labels: dict):
+        """
+        Maps manually provided speaker labels to the full transcript.
+        """
+        if self.transcript is None:
+            self.transcript = self.diarize_and_transcribe(self.audio_file_path)
+
+        labeled = []
+        for entry in self.transcript:
+            speaker_key = entry["speaker"].lower()  # Normalize to match keys like 'speaker_0'
+            label = speaker_labels.get(speaker_key, speaker_key)
+            labeled.append({**entry, "speaker": label})
+        return labeled
+
 
     def diarize_and_transcribe(self, audio_path):
         return SpeechProcessingPipeline(audio_path).run_pipeline()
@@ -67,3 +89,4 @@ class SpeakerRoleInferencePipeline:
 
     def insert_to_db(self, enriched_transcript):
         insert_transcript(enriched_transcript)
+ 

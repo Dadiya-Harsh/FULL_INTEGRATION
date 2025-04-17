@@ -6,3 +6,9 @@
 *.zip
 uploads/
 diar_infer_telephonic.yaml
+*.wav
+Testing/
+vad_outputs/
+diar_outputs/
+pred_rttms/
+speaker_outputs/

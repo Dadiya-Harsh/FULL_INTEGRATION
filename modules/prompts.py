@@ -10,7 +10,12 @@ def identify_speaker_role_prompt(formatted_transcript: str) -> str:
 
     **Return a single role for each speaker.** If multiple roles seem applicable, choose the most appropriate one, but avoid using slashes ("/") or multiple roles.
 
-    Expected JSON format:
+    Follow these rules:
+        1. NEVER use markdown code blocks (```json or ```)
+        2. ALWAYS return raw JSON without any wrapping characters
+        3. ALWAYS return valid JSON
+
+    Strictly expected JSON format:
     {{
     "Speaker_0": "<role>",
     "Speaker_1": "<role>"

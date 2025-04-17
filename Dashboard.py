@@ -2,7 +2,7 @@
 import streamlit as st
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from models import Base, Employee, EmployeeSkills, SkillRecommendation, TaskRecommendation, RollingSentiment
+from modules.db.models import Base, Employee, EmployeeSkills, SkillRecommendation, TaskRecommendation, RollingSentiment
 import pandas as pd
 import json
 import os
@@ -27,29 +27,68 @@ def get_employee_by_email(email):
     with SessionLocal() as db:
         return db.query(Employee).filter(Employee.email == email).first()
 
+
+
+# def get_skills_for_employee(name, meeting_id=None):
+#     with SessionLocal() as db:
+#         query = db.query(SkillRecommendation).filter(SkillRecommendation.name == name)
+#         if meeting_id:
+#             # Ensure it's a list to support both single and multiple meeting IDs
+#             if isinstance(meeting_id, list):
+#                 query = query.filter(SkillRecommendation.meeting_id.in_(meeting_id))
+#             else:
+#                 query = query.filter(SkillRecommendation.meeting_id == meeting_id)
+#         return [{"skill": s.skill_recommendation, "meeting_id": s.meeting_id} for s in query.all()]
+
 def get_skills_for_employee(name, meeting_id=None):
     with SessionLocal() as db:
-        query = db.query(SkillRecommendation).filter(SkillRecommendation.name == name)
+        query = db.query(
+            SkillRecommendation.skill_recommendation,
+            Meeting.created_at
+        ).join(Meeting, SkillRecommendation.meeting_id == Meeting.id).filter(
+            SkillRecommendation.name == name
+        )
         if meeting_id:
-            query = query.filter(SkillRecommendation.meeting_id == meeting_id)
-        return [{"skill": s.skill_recommendation, "meeting_id": s.meeting_id} for s in query.all()]
+            if isinstance(meeting_id, list):
+                query = query.filter(SkillRecommendation.meeting_id.in_(meeting_id))
+            else:
+                query = query.filter(SkillRecommendation.meeting_id == meeting_id)
 
-def get_tasks_for_employee(name, meeting_id=None):
+        return [
+            {
+                "skill": s.skill_recommendation,
+                "meeting_date": s.created_at.strftime("%Y-%m-%d %H:%M")
+            }
+            for s in query.all()
+        ]
+
+
+def get_tasks_for_employee(name, meeting_ids=None):
     with SessionLocal() as db:
         query = db.query(TaskRecommendation).filter(
             (TaskRecommendation.assigned_to == name) | 
             (TaskRecommendation.assigned_by == name)
         )
-        if meeting_id:
-            query = query.filter(TaskRecommendation.meeting_id == meeting_id)
+        if meeting_ids:
+            if isinstance(meeting_ids, list):
+                query = query.filter(TaskRecommendation.meeting_id.in_(meeting_ids))
+            else:
+                query = query.filter(TaskRecommendation.meeting_id == meeting_ids)
         return query.all()
 
-def get_sentiment_data(name, meeting_id=None):
+
+def get_sentiment_data(name, meeting_ids=None):
     with SessionLocal() as db:
-        query = db.query(EmployeeSkills).filter(EmployeeSkills.employee_name == name)
-        if meeting_id:
-            query = query.filter(EmployeeSkills.meeting_id == meeting_id)
+        query = db.query(EmployeeSkills).filter(
+            EmployeeSkills.employee_name == name
+        )
+        if meeting_ids:
+            if isinstance(meeting_ids, list):
+                query = query.filter(EmployeeSkills.meeting_id.in_(meeting_ids))
+            else:
+                query = query.filter(EmployeeSkills.meeting_id == meeting_ids)
         return query.all()
+
 
 def get_rolling_sentiment(name, meeting_id=None):
     with SessionLocal() as db:
@@ -66,12 +105,24 @@ def get_all_employees(role_filter=None):
             query = query.filter(Employee.role == role_filter)
         return query.all()
 
+# def get_employee_meetings(name):
+#     with SessionLocal() as db:
+#         meetings = db.query(EmployeeSkills.meeting_id).filter(
+#             EmployeeSkills.employee_name == name).distinct().order_by(
+#             EmployeeSkills.meeting_id.desc()).all()
+#         return [m[0] for m in meetings]
+
+from modules.db.models import Meeting, EmployeeSkills
+
 def get_employee_meetings(name):
     with SessionLocal() as db:
-        meetings = db.query(EmployeeSkills.meeting_id).filter(
-            EmployeeSkills.employee_name == name).distinct().order_by(
-            EmployeeSkills.meeting_id.desc()).all()
-        return [m[0] for m in meetings]
+        meetings = db.query(
+            Meeting.id, Meeting.created_at
+        ).join(EmployeeSkills, Meeting.id == EmployeeSkills.meeting_id).filter(
+            EmployeeSkills.employee_name == name
+        ).distinct().order_by(Meeting.created_at.desc()).all()
+        
+        return [{"id": m[0], "created_at": m[1]} for m in meetings]
 
 # -------------------- UI Pages --------------------
 
@@ -95,49 +146,64 @@ def display_meeting_data(name, meeting_id=None):
         st.warning("No meeting data available for this employee.")
         return
 
-    st.markdown("### 📅 Select a Meeting")
-    selected_meeting = st.selectbox(
-        "Meeting List", 
-        options=meetings, 
-        format_func=lambda x: f"📝 Meeting {x}",
-        key=f"meeting_selectbox_{name}"  # Unique key for each user
+    st.markdown("### 📅 Select Meeting(s)")
+    selected = st.multiselect(
+        "Meeting List",
+        options=meetings,
+        format_func=lambda m: m["created_at"].strftime("🗓 %Y-%m-%d %H:%M"),
+        default=[meetings[0]],
+        key=f"meeting_multiselect_{name}"
     )
+
+    selected_meeting_ids = [m["id"] for m in selected]
+
+    if not selected_meeting_ids:
+        st.info("Please select at least one meeting to display data.")
+        return
+
+    
 
     col1, col2 = st.columns(2)
 
     with col1:
         with st.expander("📚 Skill Recommendations", expanded=True):
-            skills = get_skills_for_employee(name, selected_meeting)
+            skills = get_skills_for_employee(name, selected_meeting_ids)
             if skills:
                 for skill in skills:
-                    st.success(f"✅ {skill['skill']} (Meeting {skill['meeting_id']})")
+                    st.success(f"✅ {skill['skill']} (Meeting {skill['meeting_date']})")
             else:
-                st.info("No skill recommendations for this meeting.")
+                st.info("No skill recommendations for the selected meeting(s).")
 
     with col2:
         with st.expander("🛠️ Task Recommendations", expanded=True):
-            tasks = get_tasks_for_employee(name, selected_meeting)
+            tasks = get_tasks_for_employee(name, selected_meeting_ids)
             if tasks:
                 for task in tasks:
                     status = "✅" if task.status.lower() == "completed" else "⏳"
                     st.markdown(f"**{status} {task.task}**  \nAssigned by: `{task.assigned_by}` | Deadline: `{task.deadline}`")
             else:
-                st.info("No tasks found for this meeting.")
+                st.info("No tasks found for the selected meeting(s).")
 
     st.markdown("### 📊 Sentiment Analysis")
-    sentiments = get_sentiment_data(name, selected_meeting)
+    sentiments = get_sentiment_data(name, selected_meeting_ids)
     if sentiments:
-        for data in sentiments:
-            col1, col2 = st.columns([1, 3])
-            with col1:
-                st.metric("Overall Sentiment", f"{data.overall_sentiment_score:.2f}")
-            with col2:
-                rolling = get_rolling_sentiment(name, selected_meeting)
+        avg_sentiment = sum(s.overall_sentiment_score for s in sentiments) / len(sentiments)
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            st.metric("Average Sentiment", f"{avg_sentiment:.2f}")
+        with col2:
+            rolling_scores = []
+            for meeting_id in selected_meeting_ids:
+                rolling = get_rolling_sentiment(name, meeting_id)
                 if rolling:
-                    df = pd.DataFrame(rolling['scores']).set_index('Index')
-                    st.line_chart(df)
+                    rolling_scores.extend(rolling["scores"])
+            if rolling_scores:
+                df = pd.DataFrame(rolling_scores).set_index('Index')
+                st.line_chart(df)
+            else:
+                st.info("No rolling sentiment data found.")
     else:
-        st.warning("No sentiment data found for this meeting.")
+        st.warning("No sentiment data found for the selected meeting(s).")
 
 
 def employee_dashboard():

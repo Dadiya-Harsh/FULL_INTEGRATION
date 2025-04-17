@@ -1,72 +1,149 @@
-import google.generativeai as genai
-from dotenv import load_dotenv
+#=====================================
+#Imports and Environment Setup
+#=====================================
 import os
 import re
 import json
+from dotenv import load_dotenv
+import google.generativeai as genai
 from groq import Groq
-from models import *
-from sentiment import *
-load_dotenv()
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+import nltk
 
+from modules.db.models import *
+from modules.sentiment_analysis.sentiment import *
+
+load_dotenv()
+
+# Configure external APIs
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 genai.configure(api_key=os.getenv("GENAI_API_KEY"))
+
+#===============================
+# CHUNKING FUNCTION
+#===============================
+
+# def chunk_text(text, max_tokens=2048, overlap=200):
+#     sentences = nltk.sent_tokenize(text)
+#     chunks = []
+#     current_chunk = []
+#     current_len = 0
+
+#     for sentence in sentences:
+#         sentence_len = len(sentence.split())
+
+#         if current_len + sentence_len > max_tokens:
+#             chunks.append(" ".join(current_chunk))
+#             current_chunk = current_chunk[-overlap:]  # maintain context
+#             current_len = sum(len(s.split()) for s in current_chunk)
+
+#         current_chunk.append(sentence)
+#         current_len += sentence_len
+
+#     if current_chunk:
+#         chunks.append(" ".join(current_chunk))
+
+#     return chunks
+
+#=====================================
+# Main Sentiment & Recommendation Extractor
+#=====================================
+
 def get_sentiment_and_recommendations(text, person_name):
     prompt = f"""
         Analyze the transcript and focus ONLY on statements made by **{person_name}**.
-        Analyze the following transcript and extract tasks along with the roles or names of the individuals involved:
-                - Identify who assigned the task ("assigned_by").
-                - Identify who is responsible for completing the task ("assigned_to").
-                - Extract the task description and any deadlines (if mentioned).
-        Examples of task assignments:
-                - "Manager: John, please prepare the report by Friday."
-                assigned_by: "Manager", assigned_to: "John", task: "Prepare the report", deadline: "Friday"
-                - "Employee: I'll handle the client meeting next week."
-                assigned_by: "Employee", assigned_to: "Employee", task: "Handle the client meeting", deadline: "Next week"
+        Extract tasks with:
+        - assigned_by
+        - assigned_to
+        - task
+        - deadline
+        - status
 
         Respond in the following strict JSON format ONLY:
+        {{
+          "sentiment_score": float (0 to 1),
+          "skills": [
+            "Top skill 1",
+            "Top skill 2",
+            "Top skill 3"
+          ],
+          "tasks": [
+            {{
+              "task": "description",
+              "assigned_by": "Person assigning the task",
+              "assigned_to": "Person responsible for the task",
+              "deadline": "Suggested deadline",
+              "status": "Task status"
+            }}
+          ]
+        }}
 
-{{
-  "sentiment_score": float (0 to 1),
-  "skills": [
-    "Top skill recommendation 1",
-    "Top skill recommendation 2",
-    "Top skill recommendation 3"  // Maximum 3 skills
-  ],
-  "tasks": [
-    {{
-      "task": "description",
-      "assigned_by": "Person assigning the task",
-      "assigned_to": "Person responsible for the task",
-      "deadline": "Suggested deadline",
-      "status": "Task status"
-    }}
-  ]
-}}
-
-Rules:
-1. Provide maximum 3 most important skills
-2. Skills should be concise (3-5 words each)
-3. Omit the skills array if no skills identified
-
-Transcript:
-{text}
+        Transcript:
+        {text}
     """
 
-    # model = genai.GenerativeModel("gemini-1.5-pro-latest")
     try:
-        # response = model.generate_content(prompt)
         chat_completion = client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
             model="llama3-8b-8192",
             response_format={"type": "json_object"},
-            temperature=0.3  # More deterministic output
+            temperature=0.3
         )
-        
+
         response_text = chat_completion.choices[0].message.content
         return parse_response(response_text)
     except Exception as e:
         print(f"Error generating content: {e}")
-        return 0.0, [], []  # Return default values on error
+        return 0.0, [], []
+
+
+# def get_sentiment_and_recommendations(text, person_name):
+#     chunks = chunk_text(text)
+
+#     all_skills = set()
+#     all_tasks = []
+#     sentiment_scores = []
+
+#     for chunk in chunks:
+#         prompt = f"""
+#         Analyze ONLY {person_name}'s speech.
+#         Extract sentiment score, top 3 skills, and any tasks using this JSON format:
+#         {{
+#           "sentiment_score": float (0 to 1),
+#           "skills": ["skill1", "skill2", "skill3"],
+#           "tasks": [{{"task": "...", "assigned_by": "...", "assigned_to": "...", "deadline": "...", "status": "..."}}]
+#         }}
+
+#         Transcript:
+#         {chunk}
+#         """
+
+#         try:
+#             chat_completion = client.chat.completions.create(
+#                 messages=[{"role": "user", "content": prompt}],
+#                 model="llama3-8b-8192",
+#                 response_format={"type": "json_object"},
+#                 temperature=0.3
+#             )
+#             response_text = chat_completion.choices[0].message.content
+#             data = parse_response(response_text)
+
+#             sentiment_scores.append(data["sentiment_score"])
+#             all_skills.update(data["skills"])
+#             all_tasks.extend(data["tasks"])
+
+#         except Exception as e:
+#             print(f"Chunk error: {e}")
+
+#     avg_sentiment = sum(sentiment_scores) / len(sentiment_scores) if sentiment_scores else 0.5
+#     top_skills = list(all_skills)[:3] if all_skills else []
+
+#     return avg_sentiment, top_skills, all_tasks
+
+
+
+#=====================================
+# JSON Parser for AI Response
+#=====================================
 
 
 def parse_response(response_text):
@@ -76,12 +153,9 @@ def parse_response(response_text):
             raise ValueError("No JSON found in response")
 
         json_data = json.loads(json_match.group())
-
         sentiment = float(json_data.get("sentiment_score", 0))
-        print("SENTIMENT :=========,RESPONSE TEXT",sentiment,response_text)
-        print("RESPONSE TEXT : ",response_text)
-        skills = json_data.get("skills", [])[:3]  # Limit to max 3 skills
-        
+        skills = json_data.get("skills", [])[:3]
+
         tasks = []
         for task_data in json_data.get("tasks", []):
             task = {
@@ -101,7 +175,10 @@ def parse_response(response_text):
     except Exception as e:
         print(f"General error parsing model output: {e}")
         return 0.0, [], []
-    
+
+#=====================================
+#  Rolling Sentiment Processor (NLTK)
+#=====================================
 
 def get_rolling_sentiment_from_transcript(transcript: str, name: str):
     import nltk
@@ -110,39 +187,33 @@ def get_rolling_sentiment_from_transcript(transcript: str, name: str):
 
     sentences = sent_tokenize(transcript)
     result_data = []
-    print("TRANSCRIPT : ", transcript)
-    index = 1  # Sentence-wise index for the whole transcript
+    index = 1
+
     for sentence in sentences:
         if sentence.lower().startswith(name.lower() + ":"):
-            text = sentence.split(":", 1)[1].strip()  # Get text after "Name:"
+            text = sentence.split(":", 1)[1].strip()
             if text:
-                # result = sentiment_pipeline(text)[0]
-                # label = result["label"]
-                # score = result["score"]
-
-                # Convert to 0–100 sentiment score
-                # sentiment_score = score * 100 if label == "POSITIVE" else (1 - score) * 100
                 sentiment_score = get_sentiment(text)
-                print("NAME : ", name)
-               
-                print("TEXT ---------   : ", text)
-                print("APP : ",sentiment_score)
                 result_data.append({
                     "Index": index,
                     "Rolling Sentiment": round(sentiment_score, 2)
                 })
-        index += 1  # Increase index regardless of who said it
+        index += 1
 
     return result_data
 
+#=====================================
+# Combined Sentiment using Transformer Model
+#=====================================
+
 from transformers import pipeline
 
-# Load once globally to avoid reloading every time
+# # Load model globally
 sentiment_pipeline = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment")
 
 def get_combined_sentiment(text: str):
-    # Truncate to avoid tokenizer limit (optional, depending on model)
     result = sentiment_pipeline(text[:512])[0]
+    # result = sentiment_pipeline(text, truncation=True)[0]
     label = result['label']
     score = result['score']
     sentiment_score = score * 100 if "POSITIVE" in label else (1 - score) * 100
@@ -150,18 +221,21 @@ def get_combined_sentiment(text: str):
 
 
 
+
+#=====================================
+#  Meeting Processing Function
+#=====================================
+
 def process_meeting(meeting_id, db):
     try:
-        # Get all unprocessed transcripts for this meeting
         transcripts = db.query(MeetingTranscript).filter(
             MeetingTranscript.meeting_id == meeting_id,
             MeetingTranscript.processed == False
         ).all()
-        
+
         if not transcripts:
             return []
 
-        # Verify the meeting exists
         meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
         if not meeting:
             raise ValueError(f"Meeting with ID {meeting_id} does not exist")
@@ -179,32 +253,23 @@ def process_meeting(meeting_id, db):
         results = []
         for name, data in participants.items():
             full_text = "\n".join(data["texts"])
-            
-            # Process sentiment and recommendations
+
             _, skills, tasks = get_sentiment_and_recommendations(full_text, name)
-            
-            # Calculate rolling sentiment
             rolling_data = get_rolling_sentiment_from_transcript(full_text, name)
 
             speaker_text = " ".join([
-            sentence.split(":", 1)[1].strip()
-            for sentence in full_text.split("\n")
-            if sentence.lower().startswith(name.lower() + ":")
-        ])
+                sentence.split(":", 1)[1].strip()
+                for sentence in full_text.split("\n")
+                if sentence.lower().startswith(name.lower() + ":")
+            ])
 
-        # Use Transformer-based sentiment on the speaker's full text
             if speaker_text:
-                print('Name : ', name)
                 overall_sentiment, label = get_combined_sentiment(speaker_text)
-                print("Speaker Text : ", speaker_text)
-                print("Overall Sentiment : ", overall_sentiment)
             else:
-                overall_sentiment, label = 50.0, "NEUTRAL"  # fallback
-
-                overall_sentiment = get_sentiment(full_text)
+                overall_sentiment, label = 50.0, "NEUTRAL"
             
-            
-            # Save to EmployeeSkills
+            # advanced_scores = get_detailed_scores_from_llm(speaker_text, name)
+            # Save to DB
             db.add(EmployeeSkills(
                 meeting_id=meeting_id,
                 overall_sentiment_score=overall_sentiment,
@@ -212,7 +277,6 @@ def process_meeting(meeting_id, db):
                 employee_name=name
             ))
 
-            # Save skill recommendations
             for skill in skills[:3]:
                 db.add(SkillRecommendation(
                     meeting_id=meeting_id,
@@ -220,7 +284,6 @@ def process_meeting(meeting_id, db):
                     name=name
                 ))
 
-            # Save task recommendations
             for task in tasks:
                 db.add(TaskRecommendation(
                     meeting_id=meeting_id,
@@ -231,7 +294,6 @@ def process_meeting(meeting_id, db):
                     status=task["status"] or "Pending"
                 ))
 
-            # Save rolling sentiment
             if rolling_data:
                 db.add(RollingSentiment(
                     meeting_id=meeting_id,
@@ -243,7 +305,7 @@ def process_meeting(meeting_id, db):
                     })
                 ))
 
-            # Mark transcripts as processed
+            # Mark transcript as processed
             for transcript in transcripts:
                 if transcript.name == name:
                     transcript.processed = True
@@ -259,6 +321,7 @@ def process_meeting(meeting_id, db):
             })
 
         return results
+
     except Exception as e:
         db.rollback()
         raise e

@@ -6,8 +6,8 @@ from contextlib import contextmanager
 from typing import List, Dict
 from dotenv import load_dotenv
 
-from models import Meeting, MeetingTranscript
-from app01 import SessionLocal
+from modules.db.models import Meeting, MeetingTranscript
+from Dashboard import SessionLocal
 
 load_dotenv()
 
