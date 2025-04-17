@@ -72,6 +72,8 @@ def main():
         if query:
             try:
                 response = st.session_state.chatbot_handler.process_query(query, st.session_state.employee_id)
+                logging.info(f"Users query: {query}")
+                logging.info(f"Response: {response}")
                 if isinstance(response, dict) and response.get("status") == "success":
                     st.success(response["message"])
                     st.json(response["data"])
