@@ -25,6 +25,16 @@ def format_response(data: List[Dict[str, Any]], resource_type: str) -> str:
         )
     return str(data)
 
-def serialize_result(data: List[Dict[str, Any]], resource_type: str) -> List[Dict[str, Any]]:
-    """Ensure consistent serialization of query results."""
-    return data  # Extend with custom serialization if needed
+def serialize_result(data, resource_type: str):
+    """
+    Ensure Consitency of output.
+    """
+    if isinstance(data, dict) and 'data' in data:
+        return data['data']  # Extract the data list directly
+    elif isinstance(data, str):
+        try:
+            import json
+            return json.loads(data)
+        except json.JSONDecodeError:
+            return {"error": "Invalid data format"}
+    return data
