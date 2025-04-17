@@ -4,6 +4,7 @@ import requests
 from flask import Flask, jsonify
 from threading import Thread
 from apscheduler.schedulers.background import BackgroundScheduler
+from modules.sentiment_analysis.utils import fetch_all_employees
 import streamlit as st
 
 from modules.sentiment_analysis.processor import process_new_meetings
@@ -114,71 +115,85 @@ def main():
                 st.session_state[key] = False if key == 'authenticated' else None
             st.rerun()
 
-    if st.session_state.user_role == "HR":
-        hr_dashboard()
-    elif st.session_state.user_role == "Manager":
-        manager_dashboard()
-    else:
-        employee_dashboard()
+    tab1, tab2 = st.tabs(["📊 Dashboard", "📤 Upload Meeting"])
 
-    st.title("🎙️ Speech Processing and Role Inference")
-    st.subheader("📤 Upload your audio file (e.g., .wav, .mp3, .m4a)")
-    audio_file = st.file_uploader("Choose an audio file", type=["wav", "mp3", "m4a"], key="audio_file_uploader")
+    with tab1:
+        if st.session_state.user_role == "HR":
+            hr_dashboard()
+        elif st.session_state.user_role == "Manager":
+            manager_dashboard()
+        else:
+            employee_dashboard()
 
-    # 🧠 PROCESSING (only once!)
-    if audio_file is not None and not st.session_state.transcript_ready:
-        file_name = os.path.splitext(audio_file.name)[0] + ".wav"
-        audio_file_path = os.path.join("uploads", file_name)
-        os.makedirs(os.path.dirname(audio_file_path), exist_ok=True)
+    with tab2:
+        st.title("🎙️ Speech Processing and Role Inference")
+        st.subheader("📤 Upload your audio file (e.g., .wav, .mp3, .m4a)")
+        audio_file = st.file_uploader("Choose an audio file", type=["wav", "mp3", "m4a"], key="audio_file_uploader")
 
-        with open(audio_file_path, "wb") as f:
-            f.write(audio_file.getbuffer())
+        if audio_file is not None and not st.session_state.transcript_ready:
+            file_name = os.path.splitext(audio_file.name)[0] + ".wav"
+            audio_file_path = os.path.join("uploads", file_name)
+            os.makedirs(os.path.dirname(audio_file_path), exist_ok=True)
 
-        with st.spinner("🔄 Processing audio and sampling utterances..."):
-            st.session_state.pipeline = SpeakerRoleInferencePipeline(audio_file_path=audio_file_path)
-            st.session_state.samples = st.session_state.pipeline.run_for_raw_transcript()
-            st.session_state.transcript_ready = True
-        st.success("✅ Audio processed successfully!")
-        st.rerun()
+            with open(audio_file_path, "wb") as f:
+                f.write(audio_file.getbuffer())
 
-    # 👀 PREVIEW & MANUAL SPEAKER LABELING
-    if st.session_state.transcript_ready and st.session_state.samples:
-        st.subheader("📝 Preview Sample Utterances")
-        for s in st.session_state.samples:
-            st.markdown(f"**{s['speaker']}**: {s['text']}")
-
-        st.subheader("🔢 How many unique speakers?")
-        num_speakers = st.number_input("Number of Speakers", min_value=1, max_value=10, value=2, step=1)
-
-        st.subheader("✍️ Assign Role Labels")
-        speaker_labels = {}
-        for i in range(num_speakers):
-            key = f"speaker_{i}"
-            label = st.text_input(f"Label for {key}", value=f"Speaker {i + 1}")
-            speaker_labels[key] = label
-
-        if st.button("✅ Apply Speaker Labels"):
-            with st.spinner("🔄 Mapping labels to full transcript..."):
-                transcript = st.session_state.pipeline.apply_manual_labels(speaker_labels)
-                st.session_state.labeled_transcript = transcript
-            st.success("🎯 Speaker roles successfully applied!")
-
-    # ✅ FINAL LABELED TRANSCRIPT
-    if st.session_state.labeled_transcript:
-        st.subheader("🗒️ Final Transcript with Labels")
-        for entry in st.session_state.labeled_transcript:
-            st.markdown(f"**{entry['speaker']}** [{entry['start']:.2f}s - {entry['end']:.2f}s]: {entry['text']}")
-
-        if st.button("📥 Save to Database"):
-            with st.spinner("💾 Saving transcript..."):
-                st.session_state.pipeline.insert_to_db(st.session_state.labeled_transcript)
-                st.success("✅ Transcript saved to database!")
-
-        if st.button("🔄 Start Over"):
-            for key in ["pipeline", "samples", "transcript_ready", "labeled_transcript"]:
-                st.session_state[key] = None if key == "pipeline" else False if key == "transcript_ready" else None
+            with st.spinner("🔄 Processing audio and sampling utterances..."):
+                st.session_state.pipeline = SpeakerRoleInferencePipeline(audio_file_path=audio_file_path)
+                st.session_state.samples = st.session_state.pipeline.run_for_raw_transcript()
+                st.session_state.transcript_ready = True
+            st.success("✅ Audio processed successfully!")
             st.rerun()
 
+        if st.session_state.transcript_ready and st.session_state.samples:
+            st.subheader("📝 Preview Sample Utterances")
+            for s in st.session_state.samples:
+                st.markdown(f"**{s['speaker']}**: {s['text']}")
+
+            st.subheader("🔢 How many unique speakers?")
+            num_speakers = st.number_input("Number of Speakers", min_value=1, max_value=10, value=2, step=1)
+
+            st.subheader("✍️ Assign Role Labels")
+            from collections import defaultdict
+
+            employees = fetch_all_employees()
+            selected_employees = []
+            speaker_labels = {}
+
+            for i in range(num_speakers):
+                key = f"speaker_{i}"
+                available_options = [emp for emp in employees if emp not in selected_employees]
+
+                if not available_options:
+                    st.warning("No more available employees to assign.")
+                    break
+
+                selected = st.selectbox(
+                    f"Select employee for {key}", available_options, key=f"select_{key}"
+                )
+                speaker_labels[key] = selected
+                selected_employees.append(selected)
+
+            if st.button("✅ Apply Speaker Labels"):
+                with st.spinner("🔄 Mapping labels to full transcript..."):
+                    transcript = st.session_state.pipeline.apply_manual_labels(speaker_labels)
+                    st.session_state.labeled_transcript = transcript
+                st.success("🎯 Speaker roles successfully applied!")
+
+        if st.session_state.labeled_transcript:
+            st.subheader("🗒️ Final Transcript with Labels")
+            for entry in st.session_state.labeled_transcript:
+                st.markdown(f"**{entry['speaker']}** [{entry['start']:.2f}s - {entry['end']:.2f}s]: {entry['text']}")
+
+            if st.button("📥 Save to Database"):
+                with st.spinner("💾 Saving transcript..."):
+                    st.session_state.pipeline.insert_to_db(st.session_state.labeled_transcript)
+                    st.success("✅ Transcript saved to database!")
+
+            if st.button("🔄 Start Over"):
+                for key in ["pipeline", "samples", "transcript_ready", "labeled_transcript"]:
+                    st.session_state[key] = None if key == "pipeline" else False if key == "transcript_ready" else None
+                st.rerun()
 
 # ========================================
 # ✅ MAIN ENTRY POINT - Launch Flask thread

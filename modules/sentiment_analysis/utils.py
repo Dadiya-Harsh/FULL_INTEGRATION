@@ -1,13 +1,16 @@
 #=====================================
 #Imports and Environment Setup
 #=====================================
+import logging
 import os
 import re
 import json
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 import google.generativeai as genai
 from groq import Groq
 import nltk
+import psycopg2
 
 from modules.db.models import *
 from modules.sentiment_analysis.sentiment import *
@@ -21,65 +24,163 @@ genai.configure(api_key=os.getenv("GENAI_API_KEY"))
 #===============================
 # CHUNKING FUNCTION
 #===============================
+from transformers import GPT2Tokenizer
 
-# def chunk_text(text, max_tokens=2048, overlap=200):
-#     sentences = nltk.sent_tokenize(text)
-#     chunks = []
-#     current_chunk = []
-#     current_len = 0
+# Initialize the tokenizer (no model required)
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
-#     for sentence in sentences:
-#         sentence_len = len(sentence.split())
+# Function to count tokens in a string
+def count_tokens(text):
+    return len(tokenizer.encode(text))
 
-#         if current_len + sentence_len > max_tokens:
-#             chunks.append(" ".join(current_chunk))
-#             current_chunk = current_chunk[-overlap:]  # maintain context
-#             current_len = sum(len(s.split()) for s in current_chunk)
+def chunk_text(text, max_tokens=2048, overlap=200):
+    sentences = nltk.sent_tokenize(text)
+    chunks = []
+    current_chunk = []
+    current_len = 0
 
-#         current_chunk.append(sentence)
-#         current_len += sentence_len
+    for sentence in sentences:
+        sentence_len = len(sentence.split())  # Count words
 
-#     if current_chunk:
-#         chunks.append(" ".join(current_chunk))
+        # Check if adding the sentence would exceed the token limit
+        if current_len + sentence_len > max_tokens:
+            chunks.append(" ".join(current_chunk))
+            current_chunk = current_chunk[-overlap:]  # Maintain overlap
+            current_len = sum(len(s.split()) for s in current_chunk)
 
-#     return chunks
+        current_chunk.append(sentence)
+        current_len += sentence_len
 
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+
+    return chunks
 #=====================================
 # Main Sentiment & Recommendation Extractor
 #=====================================
+# def get_tasks_from_llm(text):
+#     prompt = f"""
+#         Analyze the transcript and extract **only the top 3 most necessary tasks** mentioned in the conversation.
+#         A task is any responsibility, goal, or action item that is explicitly or implicitly assigned to someone.
+#         If a person **suggests, hints, or indirectly implies** a responsibility, goal, or action item,
+#         treat it as a task. Include reflective, planning, and preparatory tasks.
+
+#         Focus on identifying tasks that are most critical for outcomes, follow-ups, or decision-making.
+
+#         Respond in the following strict JSON format ONLY:
+#         {{
+#             "tasks": [
+#                 {{
+#                     "task": "description",
+#                     "assigned_by": "Person assigning the task",
+#                     "assigned_to": "Person responsible for the task",
+#                     "deadline": "Suggested deadline",
+#                     "status": "Task status"
+#                 }}
+#             ]
+#         }}
+
+#         Transcript:
+#         {text}
+#     """
+#     try:
+#         chat_completion = client.chat.completions.create(
+#             messages=[{"role": "user", "content": prompt}],
+#             model="llama3-8b-8192",
+#             response_format={"type": "json_object"},
+#             temperature=0.3
+#         )
+
+#         response_text = chat_completion.choices[0].message.content
+#         return parse_response(response_text)
+#     except Exception as e:
+#         print(f"Error generating content: {e}")
+#         return 0.0, [], []
+
+ 
+def get_tasks_from_llm(text):
+    chunks = chunk_text(text, max_tokens=2048, overlap=100)
+    all_tasks = []
+
+    for chunk in chunks:
+        prompt = f"""
+            Analyze the following transcript chunk and extract up to 3 necessary tasks.
+            Focus on responsibilities, goals, or action items that are critical, either explicitly or implicitly stated.
+
+            Respond in strict JSON ONLY:
+            {{
+                "tasks": [
+                    {{
+                        "task": "description",
+                        "assigned_by": "Person assigning the task",
+                        "assigned_to": "Person responsible for the task",
+                        "deadline": "Suggested deadline",
+                        "status": "Task status"
+                    }}
+                ]
+            }}
+
+            Transcript:
+            {chunk}
+        """
+        try:
+            chat_completion = client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model="llama3-8b-8192",
+                response_format={"type": "json_object"},
+                temperature=0.3
+            )
+            response_text = chat_completion.choices[0].message.content
+            _, _, chunk_tasks = parse_response(response_text)
+            all_tasks.extend(chunk_tasks)
+
+        except Exception as e:
+            logging.error(f"Error processing chunk {chunk[:100]}...: {e}")
+
+    # Deduplicate tasks and select top 3 tasks
+    unique_tasks = {json.dumps(task, sort_keys=True): task for task in all_tasks}
+    top_tasks = list(unique_tasks.values())[:3]
+
+    return top_tasks if top_tasks else [{"task": "No tasks extracted", "assigned_by": "", "assigned_to": "", "deadline": "", "status": "Not assigned"}]
+
 
 def get_sentiment_and_recommendations(text, person_name):
+
     prompt = f"""
-        Analyze the transcript and focus ONLY on statements made by **{person_name}**.
-        Extract tasks with:
-        - assigned_by
-        - assigned_to
-        - task
-        - deadline
-        - status
+        Analyze the transcript and focus primarily on statements made by **{person_name}**,
+        but interpret task context based on the full conversation if needed.
+
+        Extract:
+        - Sentiment score (0 to 1)
+        - Up to 3 top skills inferred from the person's dialogues
+        - All tasks they are expected to do (explicitly or implicitly assigned)
+
+        If a person **suggests, hints, or indirectly implies** a responsibility, goal, or action item,
+        treat it as a task. Include reflective, planning, and preparatory tasks.
 
         Respond in the following strict JSON format ONLY:
         {{
-          "sentiment_score": float (0 to 1),
-          "skills": [
+        "sentiment_score": float (0 to 1),
+        "skills": [
             "Top skill 1",
             "Top skill 2",
             "Top skill 3"
-          ],
-          "tasks": [
+        ],
+        "tasks": [
             {{
-              "task": "description",
-              "assigned_by": "Person assigning the task",
-              "assigned_to": "Person responsible for the task",
-              "deadline": "Suggested deadline",
-              "status": "Task status"
+            "task": "description",
+            "assigned_by": "Person assigning the task",
+            "assigned_to": "Person responsible for the task",
+            "deadline": "Suggested deadline",
+            "status": "Task status"
             }}
-          ]
+        ]
         }}
 
         Transcript:
         {text}
-    """
+        """
+
 
     try:
         chat_completion = client.chat.completions.create(
@@ -94,50 +195,6 @@ def get_sentiment_and_recommendations(text, person_name):
     except Exception as e:
         print(f"Error generating content: {e}")
         return 0.0, [], []
-
-
-# def get_sentiment_and_recommendations(text, person_name):
-#     chunks = chunk_text(text)
-
-#     all_skills = set()
-#     all_tasks = []
-#     sentiment_scores = []
-
-#     for chunk in chunks:
-#         prompt = f"""
-#         Analyze ONLY {person_name}'s speech.
-#         Extract sentiment score, top 3 skills, and any tasks using this JSON format:
-#         {{
-#           "sentiment_score": float (0 to 1),
-#           "skills": ["skill1", "skill2", "skill3"],
-#           "tasks": [{{"task": "...", "assigned_by": "...", "assigned_to": "...", "deadline": "...", "status": "..."}}]
-#         }}
-
-#         Transcript:
-#         {chunk}
-#         """
-
-#         try:
-#             chat_completion = client.chat.completions.create(
-#                 messages=[{"role": "user", "content": prompt}],
-#                 model="llama3-8b-8192",
-#                 response_format={"type": "json_object"},
-#                 temperature=0.3
-#             )
-#             response_text = chat_completion.choices[0].message.content
-#             data = parse_response(response_text)
-
-#             sentiment_scores.append(data["sentiment_score"])
-#             all_skills.update(data["skills"])
-#             all_tasks.extend(data["tasks"])
-
-#         except Exception as e:
-#             print(f"Chunk error: {e}")
-
-#     avg_sentiment = sum(sentiment_scores) / len(sentiment_scores) if sentiment_scores else 0.5
-#     top_skills = list(all_skills)[:3] if all_skills else []
-
-#     return avg_sentiment, top_skills, all_tasks
 
 
 
@@ -226,6 +283,116 @@ def get_combined_sentiment(text: str):
 #  Meeting Processing Function
 #=====================================
 
+# def process_meeting(meeting_id, db):
+#     try:
+#         transcripts = db.query(MeetingTranscript).filter(
+#             MeetingTranscript.meeting_id == meeting_id,
+#             MeetingTranscript.processed == False
+#         ).all()
+
+#         if not transcripts:
+#             return []
+
+#         meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+#         if not meeting:
+#             raise ValueError(f"Meeting with ID {meeting_id} does not exist")
+
+#         participants = {}
+#         for transcript in transcripts:
+#             if transcript.name not in participants:
+#                 employee = db.query(Employee).filter(Employee.name == transcript.name).first()
+#                 participants[transcript.name] = {
+#                     "role": employee.role if employee else "Participant",
+#                     "texts": []
+#                 }
+#             participants[transcript.name]["texts"].append(f"{transcript.name}: {transcript.text}")
+
+#         results = []
+#         for name, data in participants.items():
+#             full_text = "\n".join(data["texts"])
+
+#             _, skills, _ = get_sentiment_and_recommendations(full_text, name)
+            
+#             tasks = get_tasks_from_llm(full_text)
+#             rolling_data = get_rolling_sentiment_from_transcript(full_text, name)
+
+#             speaker_text = " ".join([
+#                 sentence.split(":", 1)[1].strip()
+#                 for sentence in full_text.split("\n")
+#                 if sentence.lower().startswith(name.lower() + ":")
+#             ])
+#             print("=====================SPEAKER TEXT=====================")
+#             print(f'Spaekar Name :- {name},Speaker Text:{speaker_text}')
+#             print("=====================================================")
+            
+#             if speaker_text:
+#                 overall_sentiment= get_sentiment(speaker_text)
+#                 print("=====================================================")
+#                 print("OVERALL SENTIMENT : ",overall_sentiment)
+#                 print("=====================================================")
+#             else:
+#                 overall_sentiment = 50.0
+            
+#             # advanced_scores = get_detailed_scores_from_llm(speaker_text, name)
+#             # Save to DB
+#             db.add(EmployeeSkills(
+#                 meeting_id=meeting_id,
+#                 overall_sentiment_score=overall_sentiment,
+#                 role=data["role"],
+#                 employee_name=name
+#             ))
+
+#             for skill in skills[:3]:
+#                 db.add(SkillRecommendation(
+#                     meeting_id=meeting_id,
+#                     skill_recommendation=skill,
+#                     name=name
+#                 ))
+
+#             for task in tasks:
+#                 db.add(TaskRecommendation(  # Add to the session
+#                     meeting_id=meeting_id,
+#                     task=task["task"],
+#                     assigned_by=task["assigned_by"] or name,
+#                     assigned_to=task["assigned_to"] or name,
+#                     deadline=task["deadline"] or "N/A",
+#                     status=task["status"] or "Pending"
+#                 ))
+
+
+#             if rolling_data:
+#                 db.add(RollingSentiment(
+#                     meeting_id=meeting_id,
+#                     name=name,
+#                     role=data["role"],
+#                     rolling_sentiment=json.dumps({
+#                         "scores": rolling_data,
+#                         "average": overall_sentiment
+#                     })
+#                 ))
+
+#             # Mark transcript as processed
+#             for transcript in transcripts:
+#                 if transcript.name == name:
+#                     transcript.processed = True
+
+#             results.append({
+#                 "meeting_id": meeting_id,
+#                 "name": name,
+#                 "role": data["role"],
+#                 "sentiment": overall_sentiment,
+#                 "skills": skills,
+#                 "tasks": tasks,
+#                 "rolling_sentiment": rolling_data
+#             })
+
+#         return results
+
+#     except Exception as e:
+#         db.rollback()
+#         raise e
+
+
 def process_meeting(meeting_id, db):
     try:
         transcripts = db.query(MeetingTranscript).filter(
@@ -250,11 +417,41 @@ def process_meeting(meeting_id, db):
                 }
             participants[transcript.name]["texts"].append(f"{transcript.name}: {transcript.text}")
 
+        # ✅ Build the full meeting transcript
+        full_meeting_transcript = "\n".join(
+            f"{t.name}: {t.text}" for t in transcripts
+        )
+
+        # ✅ Get all tasks from the full meeting transcript
+        all_tasks = get_tasks_from_llm(full_meeting_transcript)
+
+        print("=====================================================")
+        print('FULL MEETING TRANSCRIPT : ',full_meeting_transcript)
+        print("===========================================")
+        # ✅ Save extracted tasks to DB
+        for task in all_tasks:
+            db.add(TaskRecommendation(
+                meeting_id=meeting_id,
+                task=task["task"],
+                assigned_by=task["assigned_by"],
+                assigned_to=task["assigned_to"],
+                deadline=task["deadline"] or "N/A",
+                status=task["status"] or "Pending"
+            ))
+
+        print("=====================================================")
+        print('ALL TASKS : ',all_tasks)
+        print("=====================================================")
+
         results = []
+
+        # Process each participant individually for skills, sentiments
         for name, data in participants.items():
             full_text = "\n".join(data["texts"])
 
-            _, skills, tasks = get_sentiment_and_recommendations(full_text, name)
+            # Get sentiment & skills for individual
+            _, skills, _ = get_sentiment_and_recommendations(full_text, name)
+
             rolling_data = get_rolling_sentiment_from_transcript(full_text, name)
 
             speaker_text = " ".join([
@@ -262,20 +459,20 @@ def process_meeting(meeting_id, db):
                 for sentence in full_text.split("\n")
                 if sentence.lower().startswith(name.lower() + ":")
             ])
+
             print("=====================SPEAKER TEXT=====================")
-            print(f'Spaekar Name :- {name},Speaker Text:{speaker_text}')
+            print(f'Speaker Name: {name}, Speaker Text: {speaker_text}')
             print("=====================================================")
-            
+
             if speaker_text:
-                overall_sentiment= get_sentiment(speaker_text)
+                overall_sentiment = get_sentiment(speaker_text)
                 print("=====================================================")
-                print("OVERALL SENTIMENT : ",overall_sentiment)
+                print("OVERALL SENTIMENT : ", overall_sentiment)
                 print("=====================================================")
             else:
                 overall_sentiment = 50.0
-            
-            # advanced_scores = get_detailed_scores_from_llm(speaker_text, name)
-            # Save to DB
+
+            # ✅ Save individual sentiment
             db.add(EmployeeSkills(
                 meeting_id=meeting_id,
                 overall_sentiment_score=overall_sentiment,
@@ -283,6 +480,7 @@ def process_meeting(meeting_id, db):
                 employee_name=name
             ))
 
+            # ✅ Save skill recommendations
             for skill in skills[:3]:
                 db.add(SkillRecommendation(
                     meeting_id=meeting_id,
@@ -290,16 +488,7 @@ def process_meeting(meeting_id, db):
                     name=name
                 ))
 
-            for task in tasks:
-                (TaskRecommendation(
-                    meeting_id=meeting_id,
-                    task=task["task"],
-                    assigned_by=task["assigned_by"] or name,
-                    assigned_to=task["assigned_to"] or name,
-                    deadline=task["deadline"] or "N/A",
-                    status=task["status"] or "Pending"
-                ))
-
+            # ✅ Save rolling sentiment
             if rolling_data:
                 db.add(RollingSentiment(
                     meeting_id=meeting_id,
@@ -311,18 +500,19 @@ def process_meeting(meeting_id, db):
                     })
                 ))
 
-            # Mark transcript as processed
+            # ✅ Mark transcripts processed
             for transcript in transcripts:
                 if transcript.name == name:
                     transcript.processed = True
 
+            # ✅ Return result data
             results.append({
                 "meeting_id": meeting_id,
                 "name": name,
                 "role": data["role"],
                 "sentiment": overall_sentiment,
                 "skills": skills,
-                "tasks": tasks,
+                "tasks": all_tasks,
                 "rolling_sentiment": rolling_data
             })
 
@@ -331,3 +521,71 @@ def process_meeting(meeting_id, db):
     except Exception as e:
         db.rollback()
         raise e
+
+
+
+#==========================================
+# FETCH ALL EMPLOYEE FOR SPEAKER LABELLING
+#==========================================
+
+
+def fetch_all_employees():
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise ValueError("DATABASE_URL not found in environment variables.")
+
+    # Parse the URL into connection components
+    result = urlparse(database_url)
+
+    conn = psycopg2.connect(
+        dbname=result.path[1:],  # remove leading slash
+        user=result.username,
+        password=result.password,
+        host=result.hostname,
+        port=result.port
+    )
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM employee;")
+    employee_names = [row[0] for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return employee_names
+
+
+
+#========================================
+# VALIDATE SPEAKER ROLES WITH LLM 
+#=========================================
+# from groq import Groq  # make sure this is installed: pip install groq
+
+
+# def validate_speaker_roles_with_llm(transcript):
+#     prompt = f"""
+# You are an AI assistant helping to review meeting transcripts.
+# Each part of the transcript is labeled with speakers like 'Speaker 0', 'Speaker 1', etc.
+
+# Please check if these speaker labels match the actual roles (e.g., Manager, Employee, HR) based on their dialogue content.
+
+# Return a JSON object in this format ONLY:
+# {{
+#   "status": "ok" or "correction_needed",
+#   "suggested_labels": {{
+#     "Speaker 0": "Vivek",
+#     "Speaker 1": "Ansh",
+#     ...
+#   }}
+# }}
+
+# Transcript:
+# {transcript}
+# """
+
+#     chat_completion = client.chat.completions.create(
+#         messages=[{"role": "user", "content": prompt}],
+#         model="llama3-8b-8192",
+#         response_format={"type": "json_object"},
+#         temperature=0.3
+#     )
+
+#     return chat_completion.choices[0].message.content
+
