@@ -112,9 +112,23 @@ def main():
             for s in st.session_state.samples:
                 st.markdown(f"**{s['speaker']}**: {s['text']}")
 
+            # Add a slider to control the number of samples per speaker
+            max_per_speaker = st.slider(
+                "Number of samples per speaker",
+                min_value=1,
+                max_value=5,
+                value=3,
+                help="Adjust the number of utterances to show for each speaker"
+            )
+
             if st.button("🔄 Refresh Samples"):
                 with st.spinner("Resampling utterances..."):
-                    st.session_state.samples, _ = st.session_state.pipeline.run_for_raw_transcript()
+                    # Just resample from the existing transcript instead of reprocessing the audio
+                    if st.session_state.pipeline and st.session_state.pipeline.transcript:
+                        st.session_state.samples = st.session_state.pipeline.sample_utterances(
+                            st.session_state.pipeline.transcript,
+                            max_per_speaker=max_per_speaker
+                        )
                 st.success("✅ Samples updated!")
                 st.rerun()
 
