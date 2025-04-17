@@ -559,33 +559,33 @@ def fetch_all_employees():
 # from groq import Groq  # make sure this is installed: pip install groq
 
 
-# def validate_speaker_roles_with_llm(transcript):
-#     prompt = f"""
-# You are an AI assistant helping to review meeting transcripts.
-# Each part of the transcript is labeled with speakers like 'Speaker 0', 'Speaker 1', etc.
+def validate_speaker_roles_with_llm(transcript):
+    prompt = f"""
+You are an AI assistant helping to review meeting transcripts.
+Each part of the transcript is labeled with speakers like 'Speaker 0', 'Speaker 1', etc.
 
-# Please check if these speaker labels match the actual roles (e.g., Manager, Employee, HR) based on their dialogue content.
+Please check if these speaker labels match the actual roles (e.g., Manager, Employee, HR) based on their dialogue content.
 
-# Return a JSON object in this format ONLY:
-# {{
-#   "status": "ok" or "correction_needed",
-#   "suggested_labels": {{
-#     "Speaker 0": "Vivek",
-#     "Speaker 1": "Ansh",
-#     ...
-#   }}
-# }}
+Return a JSON object in this format ONLY:
+{{
+  "status": "ok" or "correction_needed",
+  "suggested_labels": {{
+    "Speaker 0": "Vivek",
+    "Speaker 1": "Ansh",
+    ...
+  }}
+}}
 
-# Transcript:
-# {transcript}
-# """
+Transcript:
+{transcript}
+"""
 
-#     chat_completion = client.chat.completions.create(
-#         messages=[{"role": "user", "content": prompt}],
-#         model="llama3-8b-8192",
-#         response_format={"type": "json_object"},
-#         temperature=0.3
-#     )
+    chat_completion = client.chat.completions.create(
+        messages=[{"role": "user", "content": prompt}],
+        model="llama3-8b-8192",
+        response_format={"type": "json_object"},
+        temperature=0.3
+    )
 
-#     return chat_completion.choices[0].message.content
+    return chat_completion.choices[0].message.content
 
