@@ -117,7 +117,7 @@ def main():
     if 'user_email' not in st.session_state:
         st.session_state.user_email = None
     if 'user_role' not in st.session_state:
-        st.session_state.user_role = None
+        st.session_state.user_roles = None
 
     if not st.session_state.authenticated:
         login_page()
@@ -182,7 +182,7 @@ def main():
         st.success("🎉 Pipeline completed successfully!")
 
     # 👇 Uncomment below if you want chatbot on main page
-    # chatbot_tab()
+    chatbot_tab()
 
 # ===========================
 # 🚀 MAIN ENTRY

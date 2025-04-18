@@ -12,7 +12,7 @@ from modules.sentiment_analysis.processor import process_new_meetings
 from Dashboard import employee_dashboard, hr_dashboard, login_page, manager_dashboard
 from modules.pipelines.speaker_role_inference import SpeakerRoleInferencePipeline
 
-
+from upload_and_insert_audio import chatbot_tab
 import sys
 
 def safe_print(*args, **kwargs):
@@ -86,7 +86,7 @@ def main():
                 st.session_state[key] = False if key == 'authenticated' else None
             st.rerun()
 
-    tab1, tab2 = st.tabs(["📊 Dashboard", "📤 Upload Meeting"])
+    tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "📤 Upload Meeting", "💬 Chatbot"])
 
     with tab1:
         if st.session_state.user_role == "HR":
@@ -276,6 +276,9 @@ def main():
                 for key in ["pipeline", "samples", "transcript_ready", "labeled_transcript"]:
                     st.session_state[key] = None if key == "pipeline" else False if key == "transcript_ready" else None
                 st.rerun()
+    with tab3:
+        chatbot_tab()
+
 
 # ========================================
 # ✅ MAIN ENTRY POINT - Launch Flask thread

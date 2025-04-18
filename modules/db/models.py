@@ -96,6 +96,7 @@ class Employee(Base):
     email = Column(String)
     phone = Column(String)
     status = Column(String)
+    role = Column(String)  # 'employee', 'manager', 'hr'
     # Remove the role column as we'll use the role relationship instead
     manager_id = Column(Integer, ForeignKey("employee.id"), nullable=True)
     
@@ -312,4 +313,4 @@ def log_access(session, employee_id, resource_type, resource_id, action, success
     return log
 
 # Base.metadata.drop_all(bind=engine)  # Uncomment to reset tables
-# Base.metadata.create_all(bind=engine)
+Base.metadata.create_all(bind=engine)
