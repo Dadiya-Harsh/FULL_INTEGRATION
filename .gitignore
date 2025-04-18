@@ -13,3 +13,6 @@ vad_outputs/
 diar_outputs/
 pred_rttms/
 speaker_outputs/
+
+
+*.log
