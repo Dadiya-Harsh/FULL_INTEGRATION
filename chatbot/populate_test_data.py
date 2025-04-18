@@ -5,7 +5,7 @@ from modules.db.models import Base, Employee, Role, Permission, UserRole, RolePe
 from datetime import datetime
 
 # Database configuration
-DATABASE_URL = "postgresql://postgres:password@192.168.10.74:5433/test1"
+DATABASE_URL = "postgresql://postgres:password@192.168.10.74:5433/test_sentiment_analysis"
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 
@@ -34,9 +34,9 @@ def populate_test_data():
 
         # Insert Employees
         employees = [
-            # Employee(id=1, name="Alice Admin", email="alice@company.com", phone="123-456-7890", status="active", manager_id=None),
-            # Employee(id=2, name="Bob Manager", email="bob@company.com", phone="123-456-7891", status="active", manager_id=1),
-            # Employee(id=3, name="Charlie Worker", email="charlie@company.com", phone="123-456-7892", status="active", manager_id=2),
+            Employee(id=1, name="Alice Admin", email="alice@company.com", phone="123-456-7890", status="active", manager_id=None),
+            Employee(id=2, name="Bob Manager", email="bob@company.com", phone="123-456-7891", status="active", manager_id=1),
+            Employee(id=3, name="Charlie Worker", email="charlie@company.com", phone="123-456-7892", status="active", manager_id=2),
             Employee(id=4, name="Diana Worker", email="diana@company.com", phone="123-456-7893", status="active", manager_id=2),
             Employee(id=5, name="Eve Worker", email="eve@company.com", phone="123-456-7894", status="active", manager_id=2),
         ]
