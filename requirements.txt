@@ -13,3 +13,10 @@ streamlit
 torchaudio
 tqdm
 transformers
+
+streamlit
+sql-agent-tool
+sqlalchemy
+psycopg2-binary
+python-dotenv
+pandas

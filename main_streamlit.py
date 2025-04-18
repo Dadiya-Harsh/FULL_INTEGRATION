@@ -1,18 +1,19 @@
-
 import json
+import logging
 import os
 import requests
 from flask import Flask, jsonify
 from threading import Thread
 from apscheduler.schedulers.background import BackgroundScheduler
+from chatbot.app.chatbot_handler import ChatbotHandler
+from modules.db.models import Employee
 from modules.sentiment_analysis.utils import chunk_and_summarize_text, fetch_all_employees, validate_speaker_roles_with_llm
 import streamlit as st
 
 from modules.sentiment_analysis.processor import process_new_meetings
-from Dashboard import employee_dashboard, hr_dashboard, login_page, manager_dashboard
+from Dashboard import SessionLocal, employee_dashboard, get_employee_by_email, hr_dashboard, login_page, manager_dashboard
 from modules.pipelines.speaker_role_inference import SpeakerRoleInferencePipeline
-
-from upload_and_insert_audio import chatbot_tab
+from chatbot.app.main import sql_agent
 import sys
 
 def safe_print(*args, **kwargs):
@@ -21,6 +22,8 @@ def safe_print(*args, **kwargs):
             print(*args, **kwargs)
     except Exception:
         pass
+
+logging.basicConfig(filename="chatbot.log", level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filemode='w')
 
 # ============================
 # 🔁 BACKEND: Flask + Scheduler
@@ -31,33 +34,46 @@ app = Flask(__name__)
 def home():
     return "Flask backend is running!"
 
-
 def start_flask():
     app.run(port=5000, debug=False, use_reloader=False)
-
 
 # ============================
 # 🖥️ FRONTEND: Streamlit App
 # ============================
 
-# Initialize session state
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-if 'user_name' not in st.session_state:
-    st.session_state.user_name = None
-if 'user_email' not in st.session_state:
-    st.session_state.user_email = None
-if 'user_role' not in st.session_state:
-    st.session_state.user_role = None
-
-if 'pipeline' not in st.session_state:
-    st.session_state.pipeline = None
-if 'samples' not in st.session_state:
-    st.session_state.samples = None
-if 'transcript_ready' not in st.session_state:
-    st.session_state.transcript_ready = False
-if 'labeled_transcript' not in st.session_state:
-    st.session_state.labeled_transcript = None
+# Initialize all session state variables
+def init_session_state():
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+    if 'user_name' not in st.session_state:
+        st.session_state.user_name = None
+    if 'user_email' not in st.session_state:
+        st.session_state.user_email = None
+    if 'login_email' not in st.session_state:  # Added login_email
+        st.session_state.login_email = None
+    if 'user_role' not in st.session_state:
+        st.session_state.user_role = None
+    if 'pipeline' not in st.session_state:
+        st.session_state.pipeline = None
+    if 'samples' not in st.session_state:
+        st.session_state.samples = None
+    if 'transcript_ready' not in st.session_state:
+        st.session_state.transcript_ready = False
+    if 'labeled_transcript' not in st.session_state:
+        st.session_state.labeled_transcript = None
+    # Chatbot specific state
+    if 'chatbot_authenticated' not in st.session_state:
+        st.session_state.chatbot_authenticated = False
+    if 'db_session' not in st.session_state:
+        st.session_state.db_session = None
+    if 'chatbot_handler' not in st.session_state:
+        st.session_state.chatbot_handler = None
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
+    if 'query' not in st.session_state:
+        st.session_state.query = ""
+    if 'employee_id' not in st.session_state:
+        st.session_state.employee_id = None
 
 def format_transcript_to_markdown(transcript):
     """Convert transcript entries to HTML with bold speaker names"""
@@ -68,9 +84,97 @@ def format_transcript_to_markdown(transcript):
         html_lines.append(f"<strong>{speaker}</strong>: {text}")
     return "<br>".join(html_lines)
 
+# ============================
+# 🤖 CHATBOT TAB
+# ============================
+def chatbot_tab():
+    st.title("🤖 RBAC Chatbot")
+    
+    # Initialize chatbot if not already done
+    if not st.session_state.chatbot_authenticated and st.session_state.user_email:
+        try:
+            emp = get_employee_by_email(st.session_state.user_email)
+            if emp:
+                st.session_state.employee_id = emp.id
+                st.session_state.db_session = SessionLocal()
+                st.session_state.chatbot_handler = ChatbotHandler(
+                    st.session_state.db_session, 
+                    sql_agent
+                )
+                st.session_state.chatbot_authenticated = True
+                st.session_state.chat_history = []
+        except Exception as e:
+            st.error(f"Failed to initialize chatbot: {str(e)}")
+            logging.exception("Chatbot initialization failed")
+            return
 
+    if not st.session_state.chatbot_authenticated:
+        st.warning("Please login to use the chatbot")
+        return
+
+    st.subheader(f"Welcome, {st.session_state.user_name}")
+
+    # Display chat history
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg["role"]):
+            if msg["role"] == "assistant":
+                if isinstance(msg["content"], dict) and "message" in msg["content"]:
+                    st.write(msg["content"]["message"])
+                    if "data" in msg["content"]:
+                        st.json(msg["content"]["data"])
+                else:
+                    st.write(msg["content"])
+            else:
+                st.write(msg["content"])
+
+    # Chat input
+    query = st.chat_input("Enter your query", key="chat_input")
+    if query:
+        st.session_state.query = query
+        try:
+            # Add user message to chat history
+            st.session_state.chat_history.append({"role": "user", "content": query})
+            
+            # Process query
+            with st.spinner("Thinking..."):
+                response = st.session_state.chatbot_handler.process_query(
+                    query, 
+                    st.session_state.employee_id
+                )
+                logging.info(f"User query: {query}")
+                logging.info(f"Response: {response}")
+                
+                # Handle response
+                if isinstance(response, dict):
+                    message = response.get("message", "")
+                    data = response.get("data", {})
+                    st.session_state.chat_history.append({
+                        "role": "assistant", 
+                        "content": {"message": message, "data": data}
+                    })
+                else:
+                    st.session_state.chat_history.append({
+                        "role": "assistant", 
+                        "content": str(response)
+                    })
+            
+            # Clear query and rerun to update UI
+            st.session_state.query = ""
+            st.rerun()
+            
+        except Exception as e:
+            err_msg = f"Error: {str(e)}"
+            st.session_state.chat_history.append({
+                "role": "assistant", 
+                "content": {"message": err_msg}
+            })
+            st.error(err_msg)
+            logging.exception("Query failed")
+            st.rerun()
 
 def main():
+    init_session_state()  # Initialize all session state variables
+    
     if not st.session_state.authenticated:
         login_page()
         return
@@ -81,9 +185,10 @@ def main():
         st.caption(f"📧 {st.session_state.user_email}")
         st.caption(f"🧾 Role: `{st.session_state.user_role}`")
         st.markdown("---")
-        if st.button("🚪 Logout"):
-            for key in ['authenticated', 'user_role', 'user_name', 'user_email']:
-                st.session_state[key] = False if key == 'authenticated' else None
+        if st.button("🚪 Logout", key="logout_button"):
+            # Reset all session state on logout
+            for key in st.session_state.keys():
+                del st.session_state[key]
             st.rerun()
 
     tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "📤 Upload Meeting", "💬 Chatbot"])
@@ -122,19 +227,17 @@ def main():
             for s in st.session_state.samples:
                 st.markdown(f"**{s['speaker']}**: {s['text']}")
 
-            # Add a slider to control the number of samples per speaker
             max_per_speaker = st.slider(
                 "Number of samples per speaker",
                 min_value=1,
                 max_value=5,
                 value=3,
-                help="Adjust the number of utterances to show for each speaker"
+                help="Adjust the number of utterances to show for each speaker",
+                key="samples_slider"
             )
 
-
-            if st.button("🔄 Refresh Samples"):
+            if st.button("🔄 Refresh Samples", key="refresh_samples_button"):
                 with st.spinner("Resampling utterances..."):
-                    # Just resample from the existing transcript instead of reprocessing the audio
                     if st.session_state.pipeline and st.session_state.pipeline.transcript:
                         st.session_state.samples = st.session_state.pipeline.sample_utterances(
                             st.session_state.pipeline.transcript,
@@ -152,24 +255,16 @@ def main():
             employees = fetch_all_employees()
             num_speakers = st.session_state.num_speakers if "num_speakers" in st.session_state else 2
 
-            # Init suggestion store
             if "llm_suggestions" not in st.session_state:
                 st.session_state.llm_suggestions = {}
 
-            # Step 1: Get LLM suggestions
-            # Inside main()
-            if st.button("🤖 Suggest Speaker Names using LLM"):
+            if st.button("🤖 Suggest Speaker Names using LLM", key="llm_suggest_button"):
                 with st.spinner("LLM is analyzing transcript..."):
                     raw_transcript_text = "\n".join([f"{s['speaker']}: {s['text']}" for s in st.session_state.samples])
-
                     llm_output = validate_speaker_roles_with_llm(raw_transcript_text, allowed_names=employees)
                     llm_suggestions = json.loads(llm_output)["suggested_labels"]
-
-                    # Only keep LLM suggestions that exist in employees
-                    llm_suggestions = {
-                        k: v for k, v in llm_suggestions.items() if v in employees
-                    }
-
+                    llm_suggestions = {k: v for k, v in llm_suggestions.items() if v in employees}
+                    
                     unique_speakers = sorted(set(s["speaker"] for s in st.session_state.samples))
                     normalized_suggestions = {}
                     assigned_names = set()
@@ -177,41 +272,30 @@ def main():
                     for i, speaker in enumerate(unique_speakers):
                         key = f"speaker_{i}"
                         suggestion_key = speaker.lower().replace(" ", "_")
-
-                        # If LLM suggestion exists and is valid
                         if suggestion_key in llm_suggestions and llm_suggestions[suggestion_key] in employees:
                             name = llm_suggestions[suggestion_key]
                         else:
-                            # Assign first available unused employee
                             available = [emp for emp in employees if emp not in assigned_names]
                             name = available[0] if available else "Unknown"
-
                         normalized_suggestions[key] = name
                         assigned_names.add(name)
 
-                    # Save to session state
                     st.session_state.llm_suggestions = normalized_suggestions
-
                 st.success("✅ Suggestions ready below!")
 
-
-            # Step 2: Show LLM suggestions (if available)
             if st.session_state.llm_suggestions:
                 st.markdown("### 🧠 LLM Suggested Labels:")
                 for speaker, name in st.session_state.llm_suggestions.items():
                     st.markdown(f"- **{speaker}** → 🧠 `{name}`")
                 st.info("These names are pre-filled in the dropdowns below. You can adjust them manually.")
 
-            # Step 3: Manual dropdowns (pre-filled)
             st.markdown("### ✍️ Assign Roles to Speakers")
             selected_employees = []
             speaker_labels = {}
 
-
             for i in range(num_speakers):
                 key = f"speaker_{i}"
                 available_options = [emp for emp in employees if emp not in selected_employees]
-                
                 default_selection = st.session_state.llm_suggestions.get(key, None)
                 if default_selection not in available_options:
                     default_selection = None
@@ -222,25 +306,20 @@ def main():
                     index=available_options.index(default_selection) if default_selection else 0,
                     key=f"select_{key}"
                 )
-
                 speaker_labels[key] = selected
                 selected_employees.append(selected)
 
-            if st.button("✅ Apply Speaker Labels"):
+            if st.button("✅ Apply Speaker Labels", key="apply_labels_button"):
                 with st.spinner("🔄 Mapping labels to full transcript..."):
                     transcript = st.session_state.pipeline.apply_manual_labels(speaker_labels)
                     st.session_state.labeled_transcript = transcript
                 st.success("🎯 Speaker roles successfully applied!")
 
-
         if st.session_state.labeled_transcript:
             st.subheader("🗒️ Final Transcript with Labels")
             
-            # Create expandable section for the full transcript
             with st.expander("📜 View Full Transcript", expanded=True):
                 formatted_md = format_transcript_to_markdown(st.session_state.labeled_transcript)
-                # html_ready_text = formatted_md.replace('\n', '<br>')  # ✅ Do this first
-
                 st.markdown(
                     f"""
                     <div style="height:300px; overflow-y:auto; padding:10px; background-color:#f9f9f9; border:1px solid #ccc;">
@@ -252,37 +331,29 @@ def main():
                     unsafe_allow_html=True
                 )
 
-
+            col1, col2, col3 = st.columns([1, 1, 2])
             
+            with col1:
+                if st.button("📥 Save to Database", key="save_db_button"):
+                    with st.spinner("💾 Saving transcript..."):
+                        st.session_state.pipeline.insert_to_db(st.session_state.labeled_transcript)
+                        st.success("✅ Transcript saved to database!")
+                        with st.spinner("⚙️ Processing meeting metrics..."):
+                            result = process_new_meetings()
+                            if "error" in result:
+                                st.error(f"❌ Processing failed: {result['error']}")
+                            else:
+                                st.success("✅ Analysis complete!")
             
+            with col3:
+                if st.button("🔄 Start Over", key="start_over_button"):
+                    for key in ["pipeline", "samples", "transcript_ready", "labeled_transcript"]:
+                        st.session_state[key] = None if key == "pipeline" else False if key == "transcript_ready" else None
+                    st.rerun()
 
-            if st.button("📥 Save to Database"):
-                with st.spinner("💾 Saving transcript..."):
-                    st.session_state.pipeline.insert_to_db(st.session_state.labeled_transcript)
-                    st.success("✅ Transcript saved to database!")
-
-                    # 🔄 Immediately process the new meeting transcript
-                    with st.spinner("⚙️ Processing meeting sentiment and metrics..."):
-                        from modules.sentiment_analysis.processor import process_new_meetings
-                        result = process_new_meetings()
-                        if "error" in result:
-                            st.error(f"❌ Processing failed: {result['error']}")
-                        else:
-                            st.success("✅ Transcript processing complete!")
-
-            
-
-            if st.button("🔄 Start Over"):
-                for key in ["pipeline", "samples", "transcript_ready", "labeled_transcript"]:
-                    st.session_state[key] = None if key == "pipeline" else False if key == "transcript_ready" else None
-                st.rerun()
     with tab3:
         chatbot_tab()
 
-
-# ========================================
-# ✅ MAIN ENTRY POINT - Launch Flask thread
-# ========================================
 if __name__ == "__main__":
     flask_thread = Thread(target=start_flask, daemon=True)
     flask_thread.start()

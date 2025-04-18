@@ -118,6 +118,7 @@ def login_page():
                 st.session_state.user_role = emp.role
                 st.session_state.user_name = emp.name
                 st.session_state.user_email = emp.email
+                st.session_state.employee_id = emp.id
                 st.rerun()
             else:
                 st.error("🚫 Invalid email or employee not found")

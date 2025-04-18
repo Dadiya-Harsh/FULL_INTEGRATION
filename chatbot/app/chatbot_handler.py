@@ -101,11 +101,19 @@ class ChatbotHandler:
                 "data": serialize_result(filtered_data, resource_type)
             }
         
+        # except Exception as e:
+        #     logging.exception("Error processing query")
+        #     self.rbac.log_access(employee_id, resource_type, 0, "view", False)
+        #     return {"status": "error", "message": f"Error processing query: {str(e)}"}
         except Exception as e:
+            self.db.rollback()  # 🔥 Add this line to reset the transaction state
             logging.exception("Error processing query")
             self.rbac.log_access(employee_id, resource_type, 0, "view", False)
             return {"status": "error", "message": f"Error processing query: {str(e)}"}
-    
+        finally:
+            self.db.close()  # Optional if you're done with the session
+
+
 
     def _filter_results(self, data: list, resource_type: str, employee_id: int) -> list:
         """Filter sql-agent-tool results to ensure RBAC compliance."""
