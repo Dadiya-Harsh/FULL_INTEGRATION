@@ -59,6 +59,16 @@ if 'transcript_ready' not in st.session_state:
 if 'labeled_transcript' not in st.session_state:
     st.session_state.labeled_transcript = None
 
+def format_transcript_to_markdown(transcript):
+    """Convert transcript entries to HTML with bold speaker names"""
+    html_lines = []
+    for entry in transcript:
+        speaker = entry['speaker']
+        text = entry['text']
+        html_lines.append(f"<strong>{speaker}</strong>: {text}")
+    return "<br>".join(html_lines)
+
+
 
 def main():
     if not st.session_state.authenticated:
@@ -120,6 +130,7 @@ def main():
                 value=3,
                 help="Adjust the number of utterances to show for each speaker"
             )
+
 
             if st.button("🔄 Refresh Samples"):
                 with st.spinner("Resampling utterances..."):
@@ -221,10 +232,29 @@ def main():
                     st.session_state.labeled_transcript = transcript
                 st.success("🎯 Speaker roles successfully applied!")
 
+
         if st.session_state.labeled_transcript:
             st.subheader("🗒️ Final Transcript with Labels")
-            for entry in st.session_state.labeled_transcript:
-                st.markdown(f"**{entry['speaker']}** [{entry['start']:.2f}s - {entry['end']:.2f}s]: {entry['text']}")
+            
+            # Create expandable section for the full transcript
+            with st.expander("📜 View Full Transcript", expanded=True):
+                formatted_md = format_transcript_to_markdown(st.session_state.labeled_transcript)
+                # html_ready_text = formatted_md.replace('\n', '<br>')  # ✅ Do this first
+
+                st.markdown(
+                    f"""
+                    <div style="height:300px; overflow-y:auto; padding:10px; background-color:#f9f9f9; border:1px solid #ccc;">
+                        <div style="font-size: 15px; line-height: 1.6;">
+                            {formatted_md}
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+
+            
+            
 
             if st.button("📥 Save to Database"):
                 with st.spinner("💾 Saving transcript..."):
@@ -240,6 +270,7 @@ def main():
                         else:
                             st.success("✅ Transcript processing complete!")
 
+            
 
             if st.button("🔄 Start Over"):
                 for key in ["pipeline", "samples", "transcript_ready", "labeled_transcript"]:
