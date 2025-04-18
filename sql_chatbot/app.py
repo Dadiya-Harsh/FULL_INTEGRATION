@@ -18,8 +18,14 @@ logger = logging.getLogger(__name__)
 
 # Initialize chatbot
 DB_URI = os.getenv("DATABASE_URL") 
-OPENAI_API_KEY = os.getenv("GROQ_API_KEY")
-chatbot = SQLChatbot(db_uri=DB_URI, openai_api_key=OPENAI_API_KEY)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+chatbot = SQLChatbot(
+    db_uri=DB_URI, 
+    api_key=GEMINI_API_KEY,
+    # model_name="llama-3.3-70b-versatile",  # Specify default model
+    llm_provider="google"
+)
 
 # Streamlit app
 st.title("SQL Chatbot with RBAC")

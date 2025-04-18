@@ -13,6 +13,8 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMe
 import pandas as pd
 from sqlalchemy.sql import text
 
+from chatbot.llm_config import LLMFactory
+
 # Set up logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -130,21 +132,33 @@ class ChatState:
         self.messages.append(message)
 
 class SQLChatbot:
-    """SQL database chatbot using LangChain and LangGraph with application-level RBAC."""
-
-    def __init__(self, db_uri: str, openai_api_key: Optional[str] = None):
-        """Initialize the SQL chatbot."""
-        self.llm = ChatGroq(
-            model='llama-3.3-70b-versatile',
-            temperature=0,
-            api_key=openai_api_key
+    def __init__(self, 
+                 db_uri: str, 
+                 llm_provider: str = "groq",
+                 model_name: Optional[str] = None,
+                 temperature: float = 0,
+                 api_key: Optional[str] = None):
+        """Initialize the SQL chatbot.
+        
+        Args:
+            db_uri: Database connection URI
+            llm_provider: LLM provider ("groq", "google", "openai")
+            model_name: Name of the model to use
+            temperature: Temperature for LLM responses
+            api_key: API key for the LLM service
+        """
+        self.llm = LLMFactory.create_llm(
+            provider=llm_provider,
+            model=model_name,
+            temperature=temperature,
+            api_key=api_key
         )
         self.db = SQLDatabase.from_uri(db_uri)
         self.sql_tool = QuerySQLDataBaseTool(db=self.db)
         self.db_schema = self.db.get_table_info()
         logger.info(f"Database tables: {self.db.get_usable_table_names()}")
         self.workflow = self._build_graph()
-        logger.info("SQLChatbot initialized")
+        logger.info(f"SQLChatbot initialized with {llm_provider} LLM")
 
     def _get_user_info(self, email: str) -> tuple[int, str]:
         """Fetch user_id and role by inferring table and columns from schema."""
@@ -236,7 +250,7 @@ class SQLChatbot:
 
     def _build_graph(self) -> StateGraph:
         """Build the LangGraph workflow."""
-        workflow = StateGraph(Dict)
+        workflow = StateGraph(dict)
         workflow.add_node("generate_sql", self._generate_sql)
         workflow.add_node("execute_sql", self._execute_sql)
         workflow.add_node("format_response", self._format_response)
