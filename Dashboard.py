@@ -28,18 +28,6 @@ def get_employee_by_email(email):
         return db.query(Employee).filter(Employee.email == email).first()
 
 
-
-# def get_skills_for_employee(name, meeting_id=None):
-#     with SessionLocal() as db:
-#         query = db.query(SkillRecommendation).filter(SkillRecommendation.name == name)
-#         if meeting_id:
-#             # Ensure it's a list to support both single and multiple meeting IDs
-#             if isinstance(meeting_id, list):
-#                 query = query.filter(SkillRecommendation.meeting_id.in_(meeting_id))
-#             else:
-#                 query = query.filter(SkillRecommendation.meeting_id == meeting_id)
-#         return [{"skill": s.skill_recommendation, "meeting_id": s.meeting_id} for s in query.all()]
-
 def get_skills_for_employee(name, meeting_id=None):
     with SessionLocal() as db:
         query = db.query(
@@ -104,13 +92,6 @@ def get_all_employees(role_filter=None):
         if role_filter:
             query = query.filter(Employee.role == role_filter)
         return query.all()
-
-# def get_employee_meetings(name):
-#     with SessionLocal() as db:
-#         meetings = db.query(EmployeeSkills.meeting_id).filter(
-#             EmployeeSkills.employee_name == name).distinct().order_by(
-#             EmployeeSkills.meeting_id.desc()).all()
-#         return [m[0] for m in meetings]
 
 from modules.db.models import Meeting, EmployeeSkills
 

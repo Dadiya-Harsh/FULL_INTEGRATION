@@ -430,14 +430,15 @@ def fetch_all_employees():
 #========================================
 # VALIDATE SPEAKER ROLES WITH LLM 
 #=========================================
-# from groq import Groq  # make sure this is installed: pip install groq
 
-def validate_speaker_roles_with_llm(transcript):
+def validate_speaker_roles_with_llm(transcript, allowed_names=None):
     prompt = f"""
 You are an AI assistant helping to review meeting transcripts.
 Each part of the transcript is labeled with speakers like 'Speaker 0', 'Speaker 1', etc.
 
 Please check the speakers' dialogues and suggest appropriate names for them based on the context of the conversation.
+
+Only suggest names from this list: {allowed_names} if provided.
 
 Return a JSON object in this format ONLY:
 {{
@@ -456,7 +457,7 @@ Transcript:
     chat_completion = client.chat.completions.create(
         messages=[{"role": "user", "content": prompt}],
         model="llama3-8b-8192",
-        response_format={"type": "json_object"},
+        response_format={"type": "json_object"},  
         temperature=0.3
     )
 
