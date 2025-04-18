@@ -59,6 +59,16 @@ if 'transcript_ready' not in st.session_state:
 if 'labeled_transcript' not in st.session_state:
     st.session_state.labeled_transcript = None
 
+def format_transcript_to_markdown(transcript):
+    """Convert transcript entries to HTML with bold speaker names"""
+    html_lines = []
+    for entry in transcript:
+        speaker = entry['speaker']
+        text = entry['text']
+        html_lines.append(f"<strong>{speaker}</strong>: {text}")
+    return "<br>".join(html_lines)
+
+
 
 def main():
     if not st.session_state.authenticated:
@@ -112,9 +122,24 @@ def main():
             for s in st.session_state.samples:
                 st.markdown(f"**{s['speaker']}**: {s['text']}")
 
+            # Add a slider to control the number of samples per speaker
+            max_per_speaker = st.slider(
+                "Number of samples per speaker",
+                min_value=1,
+                max_value=5,
+                value=3,
+                help="Adjust the number of utterances to show for each speaker"
+            )
+
+
             if st.button("🔄 Refresh Samples"):
                 with st.spinner("Resampling utterances..."):
-                    st.session_state.samples, _ = st.session_state.pipeline.run_for_raw_transcript()
+                    # Just resample from the existing transcript instead of reprocessing the audio
+                    if st.session_state.pipeline and st.session_state.pipeline.transcript:
+                        st.session_state.samples = st.session_state.pipeline.sample_utterances(
+                            st.session_state.pipeline.transcript,
+                            max_per_speaker=max_per_speaker
+                        )
                 st.success("✅ Samples updated!")
                 st.rerun()
 
@@ -132,29 +157,43 @@ def main():
                 st.session_state.llm_suggestions = {}
 
             # Step 1: Get LLM suggestions
+            # Inside main()
             if st.button("🤖 Suggest Speaker Names using LLM"):
                 with st.spinner("LLM is analyzing transcript..."):
                     raw_transcript_text = "\n".join([f"{s['speaker']}: {s['text']}" for s in st.session_state.samples])
-                    # summarized_transcript = chunk_and_summarize_text(raw_transcript_text)
 
-                    llm_output = validate_speaker_roles_with_llm(raw_transcript_text)
+                    llm_output = validate_speaker_roles_with_llm(raw_transcript_text, allowed_names=employees)
                     llm_suggestions = json.loads(llm_output)["suggested_labels"]
-                    # Normalize keys to match the format "speaker_0", "speaker_1"
 
-                    # llm_suggestions = {k.lower().replace(" ", "_"): v for k, v in llm_suggestions.items()}
-                    # st.session_state.llm_suggestions = llm_suggestions
+                    # Only keep LLM suggestions that exist in employees
+                    llm_suggestions = {
+                        k: v for k, v in llm_suggestions.items() if v in employees
+                    }
+
                     unique_speakers = sorted(set(s["speaker"] for s in st.session_state.samples))
-
-        # Create a mapping from normalized speaker IDs to suggested names
                     normalized_suggestions = {}
+                    assigned_names = set()
+
                     for i, speaker in enumerate(unique_speakers):
                         key = f"speaker_{i}"
-                        if speaker.lower().replace(" ", "_") in llm_suggestions:
-                            normalized_suggestions[key] = llm_suggestions[speaker.lower().replace(" ", "_")]
+                        suggestion_key = speaker.lower().replace(" ", "_")
 
+                        # If LLM suggestion exists and is valid
+                        if suggestion_key in llm_suggestions and llm_suggestions[suggestion_key] in employees:
+                            name = llm_suggestions[suggestion_key]
+                        else:
+                            # Assign first available unused employee
+                            available = [emp for emp in employees if emp not in assigned_names]
+                            name = available[0] if available else "Unknown"
+
+                        normalized_suggestions[key] = name
+                        assigned_names.add(name)
+
+                    # Save to session state
                     st.session_state.llm_suggestions = normalized_suggestions
 
                 st.success("✅ Suggestions ready below!")
+
 
             # Step 2: Show LLM suggestions (if available)
             if st.session_state.llm_suggestions:
@@ -168,17 +207,22 @@ def main():
             selected_employees = []
             speaker_labels = {}
 
-            for i in range(num_speakers):  # Use the defined variable instead
+
+            for i in range(num_speakers):
                 key = f"speaker_{i}"
                 available_options = [emp for emp in employees if emp not in selected_employees]
-
-                if not available_options:
-                    st.warning("No more available employees to assign.")
-                    break
+                
+                default_selection = st.session_state.llm_suggestions.get(key, None)
+                if default_selection not in available_options:
+                    default_selection = None
 
                 selected = st.selectbox(
-                    f"Select employee for {key}", available_options, key=f"select_{key}"
+                    f"Select employee for {key}",
+                    options=available_options,
+                    index=available_options.index(default_selection) if default_selection else 0,
+                    key=f"select_{key}"
                 )
+
                 speaker_labels[key] = selected
                 selected_employees.append(selected)
 
@@ -188,10 +232,29 @@ def main():
                     st.session_state.labeled_transcript = transcript
                 st.success("🎯 Speaker roles successfully applied!")
 
+
         if st.session_state.labeled_transcript:
             st.subheader("🗒️ Final Transcript with Labels")
-            for entry in st.session_state.labeled_transcript:
-                st.markdown(f"**{entry['speaker']}** [{entry['start']:.2f}s - {entry['end']:.2f}s]: {entry['text']}")
+            
+            # Create expandable section for the full transcript
+            with st.expander("📜 View Full Transcript", expanded=True):
+                formatted_md = format_transcript_to_markdown(st.session_state.labeled_transcript)
+                # html_ready_text = formatted_md.replace('\n', '<br>')  # ✅ Do this first
+
+                st.markdown(
+                    f"""
+                    <div style="height:300px; overflow-y:auto; padding:10px; background-color:#f9f9f9; border:1px solid #ccc;">
+                        <div style="font-size: 15px; line-height: 1.6;">
+                            {formatted_md}
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+
+            
+            
 
             if st.button("📥 Save to Database"):
                 with st.spinner("💾 Saving transcript..."):
@@ -207,6 +270,7 @@ def main():
                         else:
                             st.success("✅ Transcript processing complete!")
 
+            
 
             if st.button("🔄 Start Over"):
                 for key in ["pipeline", "samples", "transcript_ready", "labeled_transcript"]:

@@ -127,27 +127,87 @@ def get_tasks_from_llm(text):
         return []
 
  
-def get_sentiment_and_recommendations(text, person_name):
+# def get_sentiment_and_recommendations(text, person_name):
 
+#     prompt = f"""
+#         Analyze the transcript and focus primarily on statements made by **{person_name}**,
+#         but interpret task context based on the full conversation if needed.
+
+#         Extract:
+#         - Sentiment score (0 to 1)
+#         - Up to 3 top skills inferred from the person's dialogues
+#         - All tasks they are expected to do (explicitly or implicitly assigned)
+
+#         If a person **suggests, hints, or indirectly implies** a responsibility, goal, or action item,
+#         treat it as a task. Include reflective, planning, and preparatory tasks.
+
+#         Respond in the following strict JSON format ONLY:
+#         {{
+#         "sentiment_score": float (0 to 1),
+#         "skills": [
+#             "Top skill 1",
+#             "Top skill 2",
+#             "Top skill 3"
+#         ],
+#         "tasks": [
+#             {{
+#             "task": "description",
+#             "assigned_by": "Person assigning the task",
+#             "assigned_to": "Person responsible for the task",
+#             "deadline": "Suggested deadline",
+#             "status": "Task status"
+#             }}
+#         ]
+#         }}
+
+#         Transcript:
+#         {text}
+#         """
+
+
+#     try:
+#         chat_completion = client.chat.completions.create(
+#             messages=[{"role": "user", "content": prompt}],
+#             model="llama3-8b-8192",
+#             response_format={"type": "json_object"},
+#             temperature=0.3
+#         )
+
+#         response_text = chat_completion.choices[0].message.content
+#         return parse_response(response_text)
+#     except Exception as e:
+#         print(f"Error generating content: {e}")
+#         return []
+
+def get_sentiment_and_recommendations(text, person_name):
     prompt = f"""
         Analyze the transcript and focus primarily on statements made by **{person_name}**,
         but interpret task context based on the full conversation if needed.
 
         Extract:
         - Sentiment score (0 to 1)
-        - Up to 3 top skills inferred from the person's dialogues
+        - Up to 3 top skills inferred from the person's dialogues. 
+          PRIORITIZE TECHNICAL SKILLS and ONLY include skills that are:
+          * Explicitly mentioned
+          * Clearly implied by their responsibilities
+          * Demonstrated through their work examples
+          
+          If no clear skills can be identified, return an EMPTY ARRAY.
+
         - All tasks they are expected to do (explicitly or implicitly assigned)
 
-        If a person **suggests, hints, or indirectly implies** a responsibility, goal, or action item,
-        treat it as a task. Include reflective, planning, and preparatory tasks.
+        Important Rules:
+        1. NEVER return "None" as a skill - either find a real skill or omit it
+        2. Technical skills take priority over soft skills
+        3. Only include skills you're confident about
 
         Respond in the following strict JSON format ONLY:
         {{
         "sentiment_score": float (0 to 1),
         "skills": [
-            "Top skill 1",
-            "Top skill 2",
-            "Top skill 3"
+            "Technical skill 1 (if present)",
+            "Technical skill 2 or professional skill",
+            "Professional skill (if needed)"
         ],
         "tasks": [
             {{
@@ -164,7 +224,6 @@ def get_sentiment_and_recommendations(text, person_name):
         {text}
         """
 
-
     try:
         chat_completion = client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
@@ -172,18 +231,45 @@ def get_sentiment_and_recommendations(text, person_name):
             response_format={"type": "json_object"},
             temperature=0.3
         )
-
         response_text = chat_completion.choices[0].message.content
         return parse_response(response_text)
     except Exception as e:
         print(f"Error generating content: {e}")
         return []
-
-
 #=====================================
 # JSON Parser for AI Response
 #=====================================
 
+
+# def parse_response(response_text):
+#     try:
+#         json_match = re.search(r"\{[\s\S]+\}", response_text.strip())
+#         if not json_match:
+#             raise ValueError("No JSON found in response")
+
+#         json_data = json.loads(json_match.group())
+#         sentiment = float(json_data.get("sentiment_score", 0))
+#         skills = json_data.get("skills", [])[:3]
+
+#         tasks = []
+#         for task_data in json_data.get("tasks", []):
+#             task = {
+#                 "task": task_data.get("task", ""),
+#                 "assigned_by": task_data.get("assigned_by", ""),
+#                 "assigned_to": task_data.get("assigned_to", ""),
+#                 "deadline": task_data.get("deadline", ""),
+#                 "status": task_data.get("status", "")
+#             }
+#             tasks.append(task)
+
+#         return sentiment, skills, tasks
+
+#     except json.JSONDecodeError as e:
+#         print(f"JSON decode error: {e}")
+#         return 0.0, [], []
+#     except Exception as e:
+#         print(f"General error parsing model output: {e}")
+#         return 0.0, [], []
 
 def parse_response(response_text):
     try:
@@ -193,7 +279,12 @@ def parse_response(response_text):
 
         json_data = json.loads(json_match.group())
         sentiment = float(json_data.get("sentiment_score", 0))
-        skills = json_data.get("skills", [])[:3]
+        
+        # Clean skills - remove None/null values and "None" strings
+        skills = [
+            skill for skill in json_data.get("skills", [])[:3]
+            if skill and str(skill).lower() != "none"
+        ]
 
         tasks = []
         for task_data in json_data.get("tasks", []):
@@ -214,7 +305,6 @@ def parse_response(response_text):
     except Exception as e:
         print(f"General error parsing model output: {e}")
         return 0.0, [], []
-
 #=====================================
 #  Rolling Sentiment Processor (NLTK)
 #=====================================
@@ -430,14 +520,15 @@ def fetch_all_employees():
 #========================================
 # VALIDATE SPEAKER ROLES WITH LLM 
 #=========================================
-# from groq import Groq  # make sure this is installed: pip install groq
 
-def validate_speaker_roles_with_llm(transcript):
+def validate_speaker_roles_with_llm(transcript, allowed_names=None):
     prompt = f"""
 You are an AI assistant helping to review meeting transcripts.
 Each part of the transcript is labeled with speakers like 'Speaker 0', 'Speaker 1', etc.
 
 Please check the speakers' dialogues and suggest appropriate names for them based on the context of the conversation.
+
+Only suggest names from this list: {allowed_names} if provided.
 
 Return a JSON object in this format ONLY:
 {{
@@ -456,7 +547,7 @@ Transcript:
     chat_completion = client.chat.completions.create(
         messages=[{"role": "user", "content": prompt}],
         model="llama3-8b-8192",
-        response_format={"type": "json_object"},
+        response_format={"type": "json_object"},  
         temperature=0.3
     )
 
