@@ -22,7 +22,7 @@ class LLMFactory:
         # Default models for each provider
         default_models = {
             "groq": "llama-3.3-70b-versatile",
-            "google": "gemini-2.0-flash-lite-preview-02-05",
+            "google": "gemini-2.5-flash-preview-04-17",
             "openai": "gpt-4"
         }
         
