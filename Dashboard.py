@@ -266,5 +266,5 @@ def main():
         else:
             employee_dashboard()
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()

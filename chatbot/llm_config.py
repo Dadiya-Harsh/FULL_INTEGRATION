@@ -28,7 +28,7 @@ class LLMFactory:
         openai_api_key = os.getenv("OPENAI_API_KEY")
         
         groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-        gemini_model = os.getenv("GEMINI_MODEL", "gemini-pro")
+        gemini_model = os.getenv("GEMINI_MODEL", "models/gemini-pro")
         openai_model = os.getenv("OPENAI_MODEL", "gpt-4")
         
         providers = {

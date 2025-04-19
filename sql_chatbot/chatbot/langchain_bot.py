@@ -13,7 +13,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMe
 import pandas as pd
 from sqlalchemy.sql import text
 
-from chatbot.llm_config import LLMFactory
+from sql_chatbot.chatbot.llm_config import LLMFactory
 
 # Set up logging
 logger = logging.getLogger(__name__)

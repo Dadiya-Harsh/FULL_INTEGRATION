@@ -5,7 +5,7 @@ import requests
 from flask import Flask, jsonify
 from threading import Thread
 from apscheduler.schedulers.background import BackgroundScheduler
-from chatbot.app.chatbot_handler import ChatbotHandler
+# from chatbot.app.chatbot_handler import ChatbotHandler
 from modules.db.models import Employee
 from modules.sentiment_analysis.utils import chunk_and_summarize_text, fetch_all_employees, validate_speaker_roles_with_llm
 import streamlit as st
@@ -13,8 +13,15 @@ import streamlit as st
 from modules.sentiment_analysis.processor import process_new_meetings
 from Dashboard import SessionLocal, employee_dashboard, get_employee_by_email, hr_dashboard, login_page, manager_dashboard
 from modules.pipelines.speaker_role_inference import SpeakerRoleInferencePipeline
-from chatbot.app.main import sql_agent
+# from chatbot.app.main import sql_agent
+
+# Import the SQLChatbot
+from sql_chatbot.chatbot.langchain_bot import SQLChatbot
 import sys
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 def safe_print(*args, **kwargs):
     try:
@@ -74,6 +81,9 @@ def init_session_state():
         st.session_state.query = ""
     if 'employee_id' not in st.session_state:
         st.session_state.employee_id = None
+    # SQL Chatbot integration
+    if 'sql_chatbot' not in st.session_state:
+        st.session_state.sql_chatbot = None
 
 def format_transcript_to_markdown(transcript):
     """Convert transcript entries to HTML with bold speaker names"""
@@ -87,90 +97,87 @@ def format_transcript_to_markdown(transcript):
 # ============================
 # 🤖 CHATBOT TAB
 # ============================
-def chatbot_tab():
-    st.title("🤖 RBAC Chatbot")
-    
-    # Initialize chatbot if not already done
-    if not st.session_state.chatbot_authenticated and st.session_state.user_email:
-        try:
-            emp = get_employee_by_email(st.session_state.user_email)
-            if emp:
-                st.session_state.employee_id = emp.id
-                st.session_state.db_session = SessionLocal()
-                st.session_state.chatbot_handler = ChatbotHandler(
-                    st.session_state.db_session, 
-                    sql_agent
-                )
-                st.session_state.chatbot_authenticated = True
-                st.session_state.chat_history = []
-        except Exception as e:
-            st.error(f"Failed to initialize chatbot: {str(e)}")
-            logging.exception("Chatbot initialization failed")
-            return
+def init_sql_chatbot():
+    """Initialize the SQL chatbot if not already done"""
+    try:
+        DB_URI = os.getenv("DATABASE_URL")
+        LLM_API_KEY = os.getenv("GROQ_API_KEY")
+        
+        # Initialize the SQLChatbot
+        chatbot = SQLChatbot(
+            db_uri=DB_URI, 
+            api_key=LLM_API_KEY,
+            llm_provider="groq"  # You can change to "groq" based on available API keys
+        )
+        return chatbot
+    except Exception as e:
+        logging.error(f"Failed to initialize SQL chatbot: {str(e)}")
+        return None
 
-    if not st.session_state.chatbot_authenticated:
+def chatbot_tab():
+    st.title("🤖 SQL Chatbot with RBAC")
+    
+    # Initialize SQL chatbot if not already done
+    if st.session_state.sql_chatbot is None:
+        with st.spinner("Initializing chatbot..."):
+            st.session_state.sql_chatbot = init_sql_chatbot()
+            if st.session_state.sql_chatbot is None:
+                st.error("Failed to initialize the SQL chatbot. Please check the logs.")
+                return
+    
+    # Check if user is authenticated
+    if not st.session_state.authenticated or not st.session_state.user_email:
         st.warning("Please login to use the chatbot")
         return
-
+    
     st.subheader(f"Welcome, {st.session_state.user_name}")
-
+    
     # Display chat history
-    for msg in st.session_state.chat_history:
+    for i, msg in enumerate(st.session_state.chat_history):
         with st.chat_message(msg["role"]):
-            if msg["role"] == "assistant":
-                if isinstance(msg["content"], dict) and "message" in msg["content"]:
-                    st.write(msg["content"]["message"])
-                    if "data" in msg["content"]:
-                        st.json(msg["content"]["data"])
-                else:
-                    st.write(msg["content"])
-            else:
-                st.write(msg["content"])
-
+            st.write(msg["content"])
+    
     # Chat input
-    query = st.chat_input("Enter your query", key="chat_input")
+    query = st.chat_input("Ask a question about the database:", key="sql_chat_input")
+    
     if query:
-        st.session_state.query = query
-        try:
-            # Add user message to chat history
-            st.session_state.chat_history.append({"role": "user", "content": query})
-            
-            # Process query
-            with st.spinner("Thinking..."):
-                response = st.session_state.chatbot_handler.process_query(
-                    query, 
-                    st.session_state.employee_id
-                )
-                logging.info(f"User query: {query}")
-                logging.info(f"Response: {response}")
+        # Add user message to chat history
+        st.session_state.chat_history.append({"role": "user", "content": query})
+        
+        # Display user message
+        with st.chat_message("user"):
+            st.write(query)
+        
+        # Process query
+        with st.spinner("Thinking..."):
+            try:
+                response = st.session_state.sql_chatbot.process_query(query, st.session_state.user_email)
+                st.session_state.chat_history.append({"role": "assistant", "content": response})
                 
-                # Handle response
-                if isinstance(response, dict):
-                    message = response.get("message", "")
-                    data = response.get("data", {})
-                    st.session_state.chat_history.append({
-                        "role": "assistant", 
-                        "content": {"message": message, "data": data}
-                    })
-                else:
-                    st.session_state.chat_history.append({
-                        "role": "assistant", 
-                        "content": str(response)
-                    })
-            
-            # Clear query and rerun to update UI
-            st.session_state.query = ""
-            st.rerun()
-            
-        except Exception as e:
-            err_msg = f"Error: {str(e)}"
-            st.session_state.chat_history.append({
-                "role": "assistant", 
-                "content": {"message": err_msg}
-            })
-            st.error(err_msg)
-            logging.exception("Query failed")
-            st.rerun()
+                # Display assistant response
+                with st.chat_message("assistant"):
+                    st.write(response)
+            except Exception as e:
+                error_message = f"Error: {str(e)}"
+                st.session_state.chat_history.append({"role": "assistant", "content": error_message})
+                with st.chat_message("assistant"):
+                    st.error(error_message)
+                logging.exception("Query failed")
+
+    # Database schema and sample data expandable sections
+    with st.expander("Database Schema", expanded=False):
+        if st.session_state.sql_chatbot:
+            schema = st.session_state.sql_chatbot.get_db_schema()
+            st.text(schema)
+    
+    with st.expander("Sample Data", expanded=False):
+        if st.session_state.sql_chatbot:
+            if st.button("Load Sample Data"):
+                with st.spinner("Loading sample data..."):
+                    sample_data = st.session_state.sql_chatbot.get_sample_data()
+                    for table, df in sample_data.items():
+                        st.write(f"### {table}")
+                        st.dataframe(df)
 
 def main():
     init_session_state()  # Initialize all session state variables
@@ -191,7 +198,7 @@ def main():
                 del st.session_state[key]
             st.rerun()
 
-    tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "📤 Upload Meeting", "💬 Chatbot"])
+    tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "📤 Upload Meeting", "💬 SQL Chatbot"])
 
     with tab1:
         if st.session_state.user_role == "HR":
