@@ -164,20 +164,6 @@ def chatbot_tab():
                     st.error(error_message)
                 logging.exception("Query failed")
 
-    # Database schema and sample data expandable sections
-    with st.expander("Database Schema", expanded=False):
-        if st.session_state.sql_chatbot:
-            schema = st.session_state.sql_chatbot.get_db_schema()
-            st.text(schema)
-    
-    with st.expander("Sample Data", expanded=False):
-        if st.session_state.sql_chatbot:
-            if st.button("Load Sample Data"):
-                with st.spinner("Loading sample data..."):
-                    sample_data = st.session_state.sql_chatbot.get_sample_data()
-                    for table, df in sample_data.items():
-                        st.write(f"### {table}")
-                        st.dataframe(df)
 
 def main():
     init_session_state()  # Initialize all session state variables
