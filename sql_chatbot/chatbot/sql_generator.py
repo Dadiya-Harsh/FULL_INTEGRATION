@@ -1,8 +1,8 @@
 from typing import Optional
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_groq import ChatGroq
 
+from llm_config import LLMFactory
 import os
 from dotenv import load_dotenv
 
@@ -11,18 +11,28 @@ load_dotenv()
 class SQLGenerator:
     """Generates SQL queries from natural language questions using LLMs."""
     
-    def __init__(self, db_schema: str, openai_api_key: Optional[str] = None):
+    def __init__(self, 
+                 db_schema: str, 
+                 llm_provider: str = "groq",
+                 model_name: Optional[str] = None,
+                 temperature: float = 0,
+                 api_key: Optional[str] = None):
         """
         Initialize the SQL query generator.
         
         Args:
             db_schema: String representation of the database schema
-            openai_api_key: Optional API key for OpenAI
+            llm_provider: LLM provider ("groq", "google", "openai")
+            model_name: Name of the model to use
+            temperature: Temperature for LLM responses
+            api_key: API key for the LLM service
         """
         self.db_schema = db_schema
-        self.llm = ChatGroq(
-            model="llama-3.3-70b-versatile",  # You can use gpt-4 for better SQL generation if needed
-            api_key=openai_api_key
+        self.llm = LLMFactory.create_llm(
+            provider=llm_provider,
+            model=model_name,
+            temperature=temperature,
+            api_key=api_key
         )
         self.parser = StrOutputParser()
         

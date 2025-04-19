@@ -101,13 +101,13 @@ def init_sql_chatbot():
     """Initialize the SQL chatbot if not already done"""
     try:
         DB_URI = os.getenv("DATABASE_URL")
-        LLM_API_KEY = os.getenv("GROQ_API_KEY")
+        LLM_API_KEY = os.getenv("GEMINI_API_KEY")
         
         # Initialize the SQLChatbot
         chatbot = SQLChatbot(
             db_uri=DB_URI, 
             api_key=LLM_API_KEY,
-            llm_provider="groq"  # You can change to "groq" based on available API keys
+            llm_provider="google"  # You can change to "groq" based on available API keys
         )
         return chatbot
     except Exception as e:

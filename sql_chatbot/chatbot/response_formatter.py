@@ -3,8 +3,8 @@ import json
 import pandas as pd
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_groq import ChatGroq
 
+from llm_config import LLMFactory
 import os
 from dotenv import load_dotenv
 
@@ -13,17 +13,25 @@ load_dotenv()
 class ResponseFormatter:
     """Formats SQL query results into natural language responses."""
     
-    def __init__(self, openai_api_key: Optional[str] = None):
+    def __init__(self, 
+                 llm_provider: str = "groq", 
+                 model_name: Optional[str] = None,
+                 temperature: float = 0.1,
+                 api_key: Optional[str] = None):
         """
         Initialize the response formatter.
         
         Args:
-            openai_api_key: Optional API key for OpenAI
+            llm_provider: LLM provider ("groq", "google", "openai")
+            model_name: Name of the model to use
+            temperature: Temperature for LLM responses
+            api_key: API key for the LLM service
         """
-        self.llm = ChatGroq(
-            model="llama-3.3-70b-versatile",
-            temperature=0.1,  # Slight creativity for natural-sounding responses
-            api_key=openai_api_key,
+        self.llm = LLMFactory.create_llm(
+            provider=llm_provider,
+            model=model_name,
+            temperature=temperature,
+            api_key=api_key
         )
         self.parser = StrOutputParser()
         
